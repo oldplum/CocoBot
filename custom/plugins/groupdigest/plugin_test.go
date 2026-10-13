@@ -3,11 +3,15 @@ package groupdigest
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/jeanhua/AniaBot/common/model/command"
 	"github.com/jeanhua/AniaBot/common/model/message"
+	"github.com/jeanhua/AniaBot/common/plugin"
 	"github.com/jeanhua/AniaBot/common/storage"
 )
 
@@ -202,4 +206,83 @@ func (f *fakePersistent) Clear(_ context.Context) bool {
 func (f *fakePersistent) Clone(_ string) storage.PersistentStorage {
 	// 测试用：共享同一份数据
 	return f
+}
+
+// TestOnUnload 卸载钩子：shutdown（退出/重启）保留缓存，uninstall（市场卸载）
+// 清空内存与持久化缓存，且清理后不再写回。
+func TestOnUnload(t *testing.T) {
+	p := NewPlugin()
+	p.cfg.Enable = true
+	p.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	store := newFakePersistent()
+	p.store = store
+	ctx := context.Background()
+
+	st := &groupState{count: 3, messages: []digestMessage{{Nickname: "张三", Text: "你好"}}}
+	p.states.Store("qq:100", st)
+	if !store.SetString(ctx, "g:qq:100", `{"count":3}`) {
+		t.Fatal("准备持久化缓存失败")
+	}
+
+	// shutdown：不清理
+	if err := p.OnUnload(ctx, plugin.UnloadShutdown); err != nil {
+		t.Fatalf("shutdown 卸载不应报错: %v", err)
+	}
+	if !store.Has(ctx, "g:qq:100") {
+		t.Fatal("shutdown 不应清理持久化缓存")
+	}
+
+	// uninstall：清理内存与持久层
+	if err := p.OnUnload(ctx, plugin.UnloadUninstall); err != nil {
+		t.Fatalf("uninstall 卸载不应报错: %v", err)
+	}
+	if store.Has(ctx, "g:qq:100") {
+		t.Fatal("uninstall 应清理持久化缓存")
+	}
+	if _, ok := p.states.Load("qq:100"); ok {
+		t.Fatal("uninstall 应清空内存缓存")
+	}
+
+	// 清理后事件不再收集、也不写回
+	got, err := p.OnGroupMsg(ctx, nil, command.Command{}, message.Message{GroupId: message.FromString("100")})
+	if err != nil || !got {
+		t.Fatalf("卸载后消息事件应放行: got=%v err=%v", got, err)
+	}
+	p.persistState("qq:100", st)
+	if store.Has(ctx, "g:qq:100") {
+		t.Fatal("清理后不应再写回缓存")
+	}
+}
+
+func TestParseHeaderLines(t *testing.T) {
+	headers, invalid := parseHeaderLines([]string{
+		"X-Opencode-Session: ania-bot",
+		"Authorization: Bearer a=b",
+		"user-agent=MyGateway/1.0",
+		"", // 空行忽略
+		"no-separator",
+		":empty-name",
+		"Bad Name: value",
+	})
+	want := map[string]string{
+		"X-Opencode-Session": "ania-bot",
+		"Authorization":      "Bearer a=b", // 值可包含另一种分隔符
+		"User-Agent":         "MyGateway/1.0",
+	}
+	for k, v := range want {
+		if headers[k] != v {
+			t.Errorf("header %s = %q, want %q", k, headers[k], v)
+		}
+	}
+	if len(headers) != len(want) {
+		t.Errorf("期望 %d 个头，实际 %d（%v）", len(want), len(headers), headers)
+	}
+	if len(invalid) != 3 {
+		t.Errorf("期望 3 个非法行，实际 %v", invalid)
+	}
+	for i, line := range invalid {
+		if want := []int{5, 6, 7}[i]; line != want {
+			t.Errorf("非法行号 = %d, want %d", line, want)
+		}
+	}
 }
