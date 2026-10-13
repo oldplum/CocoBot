@@ -52,6 +52,10 @@ type HistoryStore interface {
 
 两个写入语义的设计动机：常规对话用 **Append 增量**（行级存储只 INSERT 新行，避免整条历史反复全量重写的写放大），压缩/截断后历史重排才用 **Replace 全量覆盖**。
 
+### 本轮落盘与注入剥离
+
+每轮对话的落盘范围是 **用户消息 + AI 回复 + 工具消息链**：`Chat` 组装请求后按「本轮到用户消息」的起点取 `updatedMessages` 后缀写入窗口。当调用方向用户消息拼入了只应作用于当轮的注入（记忆/知识库片段、待办提醒、计划模式附言等）时，通过 `ChatOptions.PersistUserText` 传入注入前的原始文本：注入只进入本轮请求，历史中保存的是原文。同类地，`UserPromptSubmit` 钩子注入的上下文在提供 `PersistUserText` 时也不写入历史（钩子每轮重新触发，无需回放）。动机：旧注入随历史回放既白占 token，又可能引用已失效的记忆 ID 或过期资料。
+
 ### SQL 行级存储（推荐）
 
 SQL 后端下（探测 `storage.SQLBackend`）建两张表：
@@ -61,9 +65,9 @@ SQL 后端下（探测 `storage.SQLBackend`）建两张表：
 
 Append 在事务内读取并推进 `msg_count` 分配 seq，只 INSERT 新行；Replace 清空该会话消息并重排 seq；Clear 删除两表对应行。SQLite 单连接（`MaxOpenConns(1)`）下读取遵循「收集→关闭 rows→解析」纪律，写入在单事务内完成。
 
-### KV 回退
+### 无 SQL 时
 
-非 SQL 后端回退为 `history:` 命名空间整段 JSON（`newPersistentHistoryStore`），语义一致。
+SQL 探测或建表失败时历史不落盘（仅内存窗口，重启即丢），不再回退 KV。
 
 ### 图片降级落盘
 
@@ -107,15 +111,17 @@ flowchart LR
 
 ## 长期记忆（memoryManager）
 
-与上下文窗口不同，长期记忆**跨会话、跨重启**保留，由 AI 通过 `memory_save` / `memory_search` / `memory_forget` 工具自行管理：
+与上下文窗口不同，长期记忆**跨会话、跨重启**保留，由 AI 通过 `memory_save` / `memory_search` / `memory_update` / `memory_forget` 工具自行管理：
 
 - **作用域隔离**：scope = `g:群ID` / `f:用户ID`，工具在注册时绑定 scope，从机制上保证记忆不会跨会话泄露
-- **去重**：内容规范化（空白折叠）后相同则不重复写入
+- **去重**：内容规范化（空白折叠）后相同则不重复写入；写入时另做近似重复检测（CJK 分词后词元集合的 Dice 系数，阈值 0.55），命中则在返回值里提示 AI 用 `memory_update` 合并、`memory_forget` 删除多余条目
+- **更新**：`memory_update` 按 ID 覆盖内容；未传 `user_id` / `tags` 时保留原值，显式传空则清空；内容变更后重算语义向量
 - **上限**：`memory.max_entries`（默认 200），写满返回 `ErrMemoryFull`，提示 AI 先清理或合并
 - **截断**：单条内容上限 2000 符文
 - **检索**：无 query 时返回全部（新在前）；有 query 时关键词打分（标签命中权重大于内容命中），零分剔除后排序
 - **语义向量**：可选 embedding（与知识库共享 `embedder`），入库时计算向量，检索时语义加分；embedding 服务不可用时静默降级为纯关键词
-- **存储**：SQL 后端下每条记忆一行（`ania_memory`，`(scope,id)` PK，tags/embedding JSON 列，`created_at` 定宽 UTC 文本使文本序 = 时间序）；非 SQL 回退每 scope 一个 JSON 数组
+- **注入语**：`memory.auto_inject` 注入块除「可参考」外还提示发现不符或过时时用 `memory_update` 更正，让 AI 在使用中顺手维护
+- **存储**：每条记忆一行（`ania_memory`，`(scope,id)` PK，tags/embedding JSON 列，`created_at` 定宽 UTC 文本使文本序 = 时间序）；SQL 探测或建表失败时记忆功能整体禁用
 - 面板实现 `adminpanel.MemorySource`，可在「记忆管理」页直接增删改查，scope 校验 `^[gf]:\d+$` 防越界
 
 ## 备用识图（OCR）

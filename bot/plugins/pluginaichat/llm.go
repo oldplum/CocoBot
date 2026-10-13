@@ -56,7 +56,7 @@ func (p *AIChatPlugin) buildScenePrompt(b bot.Bot, id message.QID, isGroup bool)
 	}
 	sb.WriteString("\n用户消息以 [nickname:昵称 id:用户ID] 开头，id 即该发言者在当前平台的用户 ID。")
 	if p.memoryManager != nil {
-		sb.WriteString("\n\n【长期记忆】你拥有跨会话的长期记忆能力：对话中得知的用户称呼/偏好/重要信息、群里的约定或值得记住的事件，应主动调用 memory_save 保存；当对话涉及过去的事情或你不确定的背景时，先调用 memory_search 回忆；记忆有误或用户要求忘记时用 memory_forget 删除。记忆仅在当前会话内可见。")
+		sb.WriteString("\n\n【长期记忆】你拥有跨会话的长期记忆能力：对话中得知的用户称呼/偏好/重要信息、群里的约定或值得记住的事件，应主动调用 memory_save 保存；当对话涉及过去的事情或你不确定的背景时，先调用 memory_search 回忆；发现记忆有误、过时或与现有记忆重复时主动维护——用 memory_update 更正或合并（合并后删除多余条目），不必等用户开口，只有用户明确要求忘记时才整条删除。记忆仅在当前会话内可见。")
 	}
 	if p.knowledgeManager != nil {
 		sb.WriteString("\n\n【知识库】你拥有知识库检索能力：遇到需要查资料、或用户询问知识库中应有文档的问题时，先调用 kb_search 检索；若用户明确提供了值得长期保存的完整资料/教程，可调用 kb_add 记入当前会话的知识库。知识库含当前会话库与全局库，回答引用知识库内容时可说明出处。")
@@ -155,22 +155,9 @@ func (p *AIChatPlugin) llmClientOptions() []aichat.LLMClientOption {
 	return opts
 }
 
-// subagentLLMConfig 子代理模型配置：留空字段回退主模型配置。
+// subagentLLMConfig 子代理（含 Agent 团队成员、AI 定时任务）模型配置：跟随主模型。
 func (p *AIChatPlugin) subagentLLMConfig() (baseURL, apiKey, model, format string) {
-	baseURL, apiKey, model, format = p.cfg.BaseURL, p.cfg.APIKey, p.cfg.Model, p.cfg.APIFormat
-	if p.cfg.Subagent.BaseURL != "" {
-		baseURL = p.cfg.Subagent.BaseURL
-	}
-	if p.cfg.Subagent.APIKey != "" {
-		apiKey = p.cfg.Subagent.APIKey
-	}
-	if p.cfg.Subagent.Model != "" {
-		model = p.cfg.Subagent.Model
-	}
-	if p.cfg.Subagent.APIFormat != "" {
-		format = p.cfg.Subagent.APIFormat
-	}
-	return baseURL, apiKey, model, format
+	return p.cfg.BaseURL, p.cfg.APIKey, p.cfg.Model, p.cfg.APIFormat
 }
 
 // compressorLLMConfig 压缩器模型配置：留空字段回退主模型配置。
@@ -234,17 +221,13 @@ func (p *AIChatPlugin) getChat(b bot.Bot, id message.QID, isGroup bool, prompt s
 			sessionExecutor.RegisterSession(newTodoWriteTool(p.todoManager, key))
 		}
 		// 注册子代理委派工具（仅主会话；子代理的一次性会话不注册，防止递归委派）
-		if p.cfg.Subagent.Enable {
-			for _, tool := range newSubagentTools(p, b, id, isGroup) {
-				sessionExecutor.RegisterSession(tool)
-			}
+		for _, tool := range newSubagentTools(p, b, id, isGroup) {
+			sessionExecutor.RegisterSession(tool)
 		}
 		// 注册 Agent 团队工具（仅主会话；团队成员的一次性会话经 registerScopedTools
 		// 不注册团队工具，防止递归组建团队）
-		if p.teamManager != nil {
-			for _, tool := range newTeamTools(p, b, id, isGroup) {
-				sessionExecutor.RegisterSession(tool)
-			}
+		for _, tool := range newTeamTools(p, b, id, isGroup) {
+			sessionExecutor.RegisterSession(tool)
 		}
 		// 场景描述（群聊/私聊、群信息、消息 id 前缀含义）经 WithScenePrompt 注入，
 		// 组装时排在 available_skills 之后，保住「覆盖词 + skills」的跨会话共享前缀

@@ -97,6 +97,14 @@ type ChatOptions struct {
 	// 结果消息回填（工具循环继续，语义等同工具报错），并照常触发工具观察者。
 	// 用于计划模式、PreToolUse 钩子、人工审批等调用前拦截场景。
 	PreToolGate func(ctx context.Context, call llmtool.ToolCall) (block bool, result string)
+
+	// PersistUserText 会话历史（窗口落盘）中保存的用户消息文本；为空时保存
+	// userInput 原值。调用方在请求前向用户消息追加了只应作用于当轮的注入
+	// （记忆/知识库片段、待办提醒、计划模式附言等）时，用它传入注入前的原始
+	// 用户消息：注入只进入当轮请求，不随历史回放（既白占上下文，又可能引用
+	// 已失效的记忆 ID 或过期资料）。非空时，Chat 内部 UserPromptSubmit 钩子
+	// 追加的上下文同样不写入历史（钩子每轮都会重新触发，同属当轮注入）。
+	PersistUserText string
 }
 
 func TextPart(text string) ContentPart {

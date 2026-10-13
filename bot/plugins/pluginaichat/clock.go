@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jeanhua/AniaBot/bot/component/agenthook"
 	"github.com/jeanhua/AniaBot/bot/component/aichat"
@@ -561,6 +562,10 @@ func (m *clockManager) finishTask(id string) {
 type taskRecorder struct {
 	toolCalls      []tasklog.ToolCallRecord
 	toolCallsTotal int // 工具调用总数（含超出上限被丢弃的）
+	// outputSkipped / skipReason：AI 调用 skip_output 请求跳过本轮输出，
+	// 由 executeTask 收尾时写入（同一 goroutine），随执行日志落盘
+	outputSkipped bool
+	skipReason    string
 }
 
 // observe 工具调用观察回调：追加一条执行记录，明细最多保留 MaxToolCallRecords 条。
@@ -668,6 +673,8 @@ func (m *clockManager) runTask(task *ClockTask) {
 			e.ToolCalls = rec.toolCalls
 			e.ToolCallsTotal = rec.toolCallsTotal
 			e.Reply = tasklog.Truncate(resp, tasklog.MaxReplyRunes)
+			e.OutputSkipped = rec.outputSkipped
+			e.SkipReason = rec.skipReason
 			e.PromptTokens = usage.PromptTokens
 			e.CompletionTokens = usage.CompletionTokens
 			e.TotalTokens = usage.TotalTokens
@@ -701,8 +708,8 @@ func (m *clockManager) runTask(task *ClockTask) {
 		})
 		finished = true
 		m.logger.Info("定时任务执行成功", "task", task.ID, "title", task.Title,
-			"duration", duration, "tokens", usage.TotalTokens)
-		_ = resp // 最终回复已在 executeTask 内发送
+			"duration", duration, "tokens", usage.TotalTokens, "output_skipped", rec.outputSkipped)
+		_ = resp // 最终回复已在 executeTask 内按需推送（skip_output 时仅记日志）
 	})
 }
 
@@ -724,22 +731,27 @@ func (m *clockManager) executeTask(ctx context.Context, task *ClockTask, rec *ta
 	// 平台 Provider 外观，经 aitool 直接构造，与主会话的平台工具同实现）
 	sessionExecutor.RegisterSession(llmtool.AdaptProviderTool(
 		aitool.NewMsgHistoryTool(aitool.Context{Bot: m.bot, Target: targetQID, IsGroup: isGroup}, "get_msg_history")))
+	// 注册「跳过本轮输出」工具：AI 判断本次无需向目标汇报时调用，
+	// 收尾时据此抑制最终回复推送（日志仍照常记录，见 clockskip.go）。
+	// 重名防御：与内置共享工具同名时跳过并记日志（会话层注册会静默覆盖同名工具）
+	output := &clockOutputState{}
+	if skipTool := newClockSkipOutputTool(output); !p.toolExecutor.Has(skipTool.Name()) {
+		sessionExecutor.RegisterSession(skipTool)
+	} else {
+		p.Logger.Warn("skip_output 工具与内置工具重名，本次执行不注册", "task", task.ID)
+	}
 	// extra 本次执行在主 ChatBot 循环之外派生的用量（异步子代理、备用图片识别），
 	// 收尾时并入任务总用量，使任务日志与配额反映完整成本
 	extra := &usageAcc{}
-	// 注册定时任务专用子代理工具（受 subagent.enable 门控）：子代理在后台异步
-	// 执行，任务收尾时统一等待全部完成并把结果回喂给任务 AI——只有汇总后的
-	// 最终回复才会推送给目标
-	var subagents *clockSubagentSet
-	if p.cfg.Subagent.Enable {
-		subagents = newClockSubagentSet()
-		for _, tool := range newClockSubagentTools(p, m.bot, task, subagents, extra) {
-			sessionExecutor.RegisterSession(tool)
-		}
-		// 兜底：任意路径返回前取消仍运行中的子代理（正常路径 drainClockSubagents 已处理）
-		defer subagents.cancelPending()
+	// 注册定时任务专用子代理工具：子代理在后台异步执行，任务收尾时统一等待
+	// 全部完成并把结果回喂给任务 AI——只有汇总后的最终回复才会推送给目标
+	subagents := newClockSubagentSet()
+	for _, tool := range newClockSubagentTools(p, m.bot, task, subagents, extra) {
+		sessionExecutor.RegisterSession(tool)
 	}
-	// 定时任务与子代理共用独立模型配置（留空回退主模型）
+	// 兜底：任意路径返回前取消仍运行中的子代理（正常路径 drainClockSubagents 已处理）
+	defer subagents.cancelPending()
+	// 定时任务模型与执行参数跟随主模型（subagentLLMConfig = 主模型四元组）
 	saBaseURL, saAPIKey, saModel, saFormat := p.subagentLLMConfig()
 	chat, err := aichat.NewChatBot(
 		saBaseURL, saAPIKey, saModel,
@@ -776,19 +788,21 @@ func (m *clockManager) executeTask(ctx context.Context, task *ClockTask, rec *ta
 	}
 	// 若任务 AI 委派了异步子代理：等待全部子代理返回，把结果回喂给 AI 合成
 	// 最终回复——只有这最后一轮输出才会推送，子代理返回前的中间回复不推送
-	if subagents != nil && subagents.hasPending() {
+	if subagents.hasPending() {
 		resp, usage = m.drainClockSubagents(ctx, task, chat, cbs, subagents, resp, usage)
 	}
 	// 子代理在 drain 期间完成并把用量计入 extra；此处统一并入。
 	// 注意：预算耗尽被 cancelPending 强制取消的子代理可能在此之后才结束，
 	// 其尾量会从统计与配额中一并丢失，属可接受的边界情况
 	usage = mergeTokenUsage(usage, extra.take())
-	// 只发送最终文本回复到触发对象；多轮工具过程中的中间轮文本由
-	// makeClockCallback 的 SendText 丢弃（仅记日志），避免触发对象收到
-	// 中途碎片的非预期消息。工具主动调用的图片/文件仍正常发送。
-	if strings.TrimSpace(resp) != "" {
-		m.sendText(task, resp)
+	// AI 调用 skip_output 时本轮最终回复不再推送——「本次完整 loop 的收尾输出」
+	// 一律留在执行日志中（含子代理结果汇总后的合成轮），供巡检类任务保持安静
+	skipped, skipReason := output.skipped()
+	if rec != nil {
+		rec.outputSkipped = skipped
+		rec.skipReason = skipReason
 	}
+	m.sendFinalOutput(task, resp, skipped, skipReason)
 	// Stop 钩子（仅通知）：定时任务一次完整执行结束
 	if p.hookManager != nil {
 		p.hookManager.Run(ctx, agenthook.EventStop, agenthook.Payload{
@@ -846,7 +860,7 @@ func (m *clockManager) makeClockCallback(ctx context.Context, task *ClockTask, u
 		SendFile: func(name, bs64 string) (string, error) {
 			ok := m.sendFile(task, name, bs64)
 			if !ok {
-				return "", fmt.Errorf("发送失败")
+				return "", fmt.Errorf("发送失败（也可能是上传超时、内容稍后仍会送达，请勿重复发送）")
 			}
 			logger.Info("定时任务发送文件", "task", task.ID, "target", targetIDStr, "file", name)
 			return "发送成功", nil
@@ -897,6 +911,25 @@ func (m *clockManager) makeClockCallback(ctx context.Context, task *ClockTask, u
 }
 
 // ---- 目标消息发送 ----
+
+// sendFinalOutput 收尾推送最终回复。语义：
+//   - AI 调用 skip_output 时保持安静（返回 false，跳过原因与回复文本仅记日志）；
+//   - 其余情况仅推送非空文本；多轮工具过程中的中间轮文本由 makeClockCallback
+//     的 SendText 丢弃（仅记日志），避免触发对象收到中途碎片的非预期消息。
+//
+// 工具主动调用的图片/文件、任务异常（超时等）的系统提示不经过本函数，仍正常发送。
+func (m *clockManager) sendFinalOutput(task *ClockTask, resp string, skipped bool, skipReason string) bool {
+	if skipped {
+		m.logger.Info("定时任务按AI请求跳过本轮输出（仅保留日志）",
+			"task", task.ID, "title", task.Title, "reason", skipReason,
+			"reply_runes", utf8.RuneCountInString(resp))
+		return false
+	}
+	if strings.TrimSpace(resp) == "" {
+		return false
+	}
+	return m.sendText(task, resp)
+}
 
 func (m *clockManager) sendText(task *ClockTask, text string) bool {
 	if m.bot == nil {

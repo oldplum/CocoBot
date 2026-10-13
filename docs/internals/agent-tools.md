@@ -152,32 +152,38 @@ flowchart TB
     I --> J[完整工具循环]
     J --> K{委派了异步子代理?}
     K -->|是| L[drainClockSubagents 等待全部<br/>结果回喂 AI 合成最终回复]
-    K -->|否| M[只推送最终回复]
+    K -->|否| M{调用了 skip_output?}
     L --> M
-    M --> N[任务日志 success / timeout / error]
+    M -->|是| N[最终回复只进日志，不推送]
+    M -->|否| O[只推送最终回复]
+    N --> P[任务日志 success / timeout / error]
+    O --> P
 ```
 
 - 每次触发**全新一次性上下文**（nil historyStore，执行完丢弃），带完整工具能力
 - 超时 `clock.default_timeout_sec`（默认 120），超时后发消息告知用户
-- 执行日志走 `bot/component/tasklog`（`ania_task_log` 行级 / KV 回退），记录工具调用明细、token 用量、最终回复；进程重启后遗留的 running 记录标记为 `interrupted`
+- 执行日志走 `bot/component/tasklog`（`ania_task_log` 行级），记录工具调用明细、token 用量、最终回复；进程重启后遗留的 running 记录标记为 `interrupted`
 - 中间轮文本丢弃，只有最终回复推送给目标；工具显式发送的图片/文件正常发出
+- `skip_output` 工具（`clockskip.go`，仅在任务会话注册）：AI 判断本次无需汇报时调用，收尾输出（含子代理结果汇总后的合成轮）只记入执行日志、不推送给目标，供巡检/监控类任务保持安静；跳过标记与原因随任务日志落盘（面板与 `/clock log` 可见）
 - 用户经 `/clock` 管理，AI 经 `clock_create/list/update/delete/log` 工具管理
 
 ## 子代理（subagent）
 
-`subagent_run` 让主 AI 委派复杂/耗时子任务给**一次性子代理**：
+`subagent_run` 让主 AI 委派复杂/耗时子任务给**一次性子代理**（默认启用，无配置开关）：
 
 - 子代理是全新 `ChatBot`（nil historyStore，执行完丢弃），独立 `SessionToolExecutor`，拥有与主 AI 一致的会话级工具（clock/memory/knowledge），但**不再注册 subagent 自身**（防递归）
 - 中间轮文本丢弃；发送图片/文件、读历史仍作用于当前会话
 - 图片状态隔离：子代理有自己的图片队列，`LoadImages` 是 stub（推迟给主 AI），避免两个工具循环互踩队列
-- 只有最终回复作为工具结果返回给主 AI，前缀运行元数据（时长、LLM 轮数、token），并按 `subagent.max_result_len`（默认 4000 符文）截断保护主上下文
+- 执行参数全部跟随主模型：模型与 API 格式直取主模型四元组（`subagentLLMConfig`），生成参数经 `buildChatOptions` 复用主模型配置，工具轮数取 `mainMaxIterations()`（主模型的最大工具调用轮数），超时取框架消息处理预算
+- 只有最终回复作为工具结果返回给主 AI，前缀运行元数据（时长、LLM 轮数、token）；结果不截断，完整回填主对话
 
 ### 超时预算
 
 ```go
-func resolveSubagentTimeout(defaultTimeout, timeoutSec, parentCtx) (timeout, error) {
-    // 1. timeoutSec 先限幅 int 再乘 time.Second（防溢出为负 duration）
-    // 2. 父上下文带 deadline 时，为主请求预留 30s 收尾，压缩子代理超时
+func resolveSubagentTimeout(defaultTimeout, timeoutSec int, parentCtx) (timeout, error) {
+    // 1. 默认超时 = p.subagentTimeout()，即 bot.msg_event_timeout_sec（未配置兜底 5m），与主请求预算同源
+    // 2. timeoutSec 先限幅 int 再乘 time.Second（防溢出为负 duration），上限 1800s
+    // 3. 父上下文带 deadline 时，为主请求预留 30s 收尾，压缩子代理超时
 }
 ```
 
@@ -189,11 +195,11 @@ clock 任务里注册的是**异步**子代理变体（`clocksubagent.go`）：�
 
 ## Agent 团队（team）
 
-在子代理之上的一层编排：AI 可保存/调用「团队」——一组带角色描述的子代理成员：
+在子代理之上的一层编排：AI 可保存/调用「团队」——一组带角色描述的子代理成员（默认启用，无配置开关）：
 
 - 团队按 scope（`g:` / `f:` / 全局 `global`）隔离，`team:` 命名空间 KV 存取；团队名严格校验（中文/字母/数字/下划线/连字符）
-- `team_run` 让多个成员**并行**执行（硬上限 10 个，防并发风暴），每个成员复用 `runSubagentWithOptions`（传角色提示词 + 团队默认参数）
-- 成员结果汇总返回主 AI；团队定义可保存复用（`team_save/list/delete`），面板提供管理页
+- `team_run` 让多个成员**并行**执行（上限 `teamMaxMembers`=5，防并发风暴），每个成员复用 `runSubagentWithOptions` 并只传角色提示词——模型与执行参数（超时/轮数）全部与普通子代理一致（即跟随主模型）
+- 成员结果汇总返回主 AI；团队定义可保存复用（`team_create/list/delete`），面板提供管理页
 - 团队成员的一次性会话不注册团队工具（防递归组建团队）
 
 ## 知识库（knowledge）
@@ -204,12 +210,13 @@ clock 任务里注册的是**异步**子代理变体（`clocksubagent.go`）：�
 - **长文档切片**：入库时按 600 字符一块、60 字符重叠切片，检索命中块而非整篇，避免无关内容占用上下文
 - 向量检索可选（与长期记忆共享 `embedder`）：每块一个 embedding（float32），检索按余弦相似度加分；embedding 服务不可用自动退化为纯关键词
 - 去重（标题+内容规范化）、上限（`kb.max_docs`）、截断（8000 符文）
+- **行级存储**：每篇文档一行（`ania_kb_doc`，`(scope,id)` 联合主键，tags/embedding 为 JSON 列），增删改只写单行；旧版「每作用域一个 JSON 数组」的 KV 数据在启动时一次性迁移入表，探测或建表失败时该功能禁用
 
 ## 配额与用量统计
 
 - **quotaManager**：按「每会话每日」+「全局每日」两个维度限制 token 消耗，键 `daily:<日期>:<会话key>` 天然按天过期；Check-Add 为宽松语义（非硬实时），面板可查看用量
 - **usageAcc**：goroutine 安全的派生用量累加器，归集主循环之外的消耗（异步子代理、team 成员、备用识图），收尾并入统计与配额
-- **Query 日志**：一次「触发 → 最终响应」的完整记录（`ania_query_log` / KV 回退），含用户输入、发送者、工具调用明细（上限 20 条 + 总数）、token、状态（running/success/stopped/timeout/error），面板「Query 日志」页按条件筛选
+- **Query 日志**：一次「触发 → 最终响应」的完整记录（`ania_query_log` 行级），含用户输入、发送者、工具调用明细（上限 20 条 + 总数）、token、状态（running/success/stopped/timeout/error），面板「Query 日志」页按条件筛选
 
 ## 钩子系统（hooks）
 

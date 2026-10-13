@@ -97,7 +97,7 @@ type AIChatPlugin struct {
 	// 复用于知识库与记忆的自动注入。
 	embedder *embedder
 
-	// teamManager Agent 团队管理器；为 nil 表示功能未启用
+	// teamManager Agent 团队管理器（功能固定启用）；为 nil 表示持久化存储不可用
 	teamManager *teamManager
 
 	// queryLogger Query 日志记录器（面板「Query 日志」页数据源）；为 nil 表示功能未启用
@@ -549,8 +549,9 @@ func (p *AIChatPlugin) processChatBatch(ctx context.Context, b bot.Bot, id messa
 
 	// 长期记忆自动注入：按原始用户消息检索相关记忆（有向量时语义+关键词
 	// 混合，否则纯关键词），命中后拼到用户消息前（尾部注入：system 保持
-	// 不变，不影响上游前缀缓存；用户消息不落盘，注入内容不会污染持久化
-	// 历史）。与知识库注入叠加时记忆块在最前、知识库块居中、用户消息最后。
+	// 不变，不影响上游前缀缓存；用户消息落盘时以注入前的原文为准，注入
+	// 内容不会污染持久化历史）。与知识库注入叠加时记忆块在最前、知识库块
+	// 居中、用户消息最后。
 	if p.memoryManager != nil && p.cfg.Memory.AutoInject {
 		memScope := "f:" + id.String()
 		if isGroup {
@@ -582,6 +583,11 @@ func (p *AIChatPlugin) processChatBatch(ctx context.Context, b bot.Bot, id messa
 	if p.planManager != nil && p.planManager.IsOn(sessionKey(id, isGroup)) {
 		extraText = "【计划模式】当前处于计划模式：请只做分析与规划并输出实施计划，不要执行任何会产生实际副作用的操作（修改文件、运行命令、改配置、建任务等会被系统自动阻止）。用户确认计划后会退出计划模式再执行。\n\n" + extraText
 	}
+
+	// 落盘用注入前的原始用户文本：记忆/知识库/待办/计划附言等注入只作用于当轮，
+	// 不随历史回放（旧注入白占上下文，且可能引用已失效的记忆 ID 或过期资料）；
+	// 用户消息本身正常落盘，跨轮/跨重启的对话上下文保持完整
+	chatOpts.PersistUserText = userText
 
 	resp, usage, err := chat.Chat(ctx, extraText, msgFuncs, chatOpts)
 	// 流式回复收尾：Chat 返回后结束流式消息（幂等；工具轮边界已由 OnStreamRoundEnd 处理）
@@ -973,14 +979,17 @@ func (p *AIChatPlugin) Start(ctx context.Context, cfg *viper.Viper) error {
 	}
 
 	// 知识库：文档主动管理 + AI 检索（kb_search）与自动注入。作用域含全局库
-	// 与按会话库，持久化到 PersistentStorage（kb: 命名空间）。
+	// 与按会话库，持久化固定为 SQL 行级存储（ania_kb_doc 表）；探测或建表
+	// 失败时禁用该功能。构造时顺带把旧版 kb: 命名空间的整段 JSON 数据迁移进表。
 	if p.cfg.Kb.Enable {
 		maxDocs := p.cfg.Kb.MaxDocs
 		if maxDocs <= 0 {
 			maxDocs = 500
 		}
 		p.knowledgeManager = newKnowledgeManager(p.PersistentStorage, p.Logger.WithGroup("knowledge"), maxDocs, embedder)
-		p.Logger.Info("已启用知识库功能", "max_docs", maxDocs, "vector", embedder != nil, "auto_inject", p.cfg.Kb.AutoInject)
+		if p.knowledgeManager != nil {
+			p.Logger.Info("已启用知识库功能", "max_docs", maxDocs, "vector", embedder != nil, "auto_inject", p.cfg.Kb.AutoInject)
+		}
 	} else {
 		p.Logger.Info("知识库功能未启用（plugin.ai_chat_bot.kb.enable=false）")
 	}
@@ -998,29 +1007,17 @@ func (p *AIChatPlugin) Start(ctx context.Context, cfg *viper.Viper) error {
 	}
 
 	// AI 子代理：主 AI 可通过 subagent_run 工具把复杂子任务委派给一次性子代理
-	// （全新上下文 + 全部工具能力），执行结果返回给主 AI，避免污染主对话上下文
-	if p.cfg.Subagent.Enable {
-		p.Logger.Info("已启用子代理功能",
-			"timeout_sec", p.subagentTimeout().Seconds(),
-			"max_iterations", p.subagentMaxIterations(),
-			"max_result_len", p.subagentMaxResultLen())
-	} else {
-		p.Logger.Info("子代理功能未启用（plugin.ai_chat_bot.subagent.enable=false）")
-	}
+	// （全新上下文 + 全部工具能力），执行结果返回给主 AI，避免污染主对话上下文；
+	// 功能固定启用，模型与执行参数均跟随主模型配置/主请求预算，结果不截断
+	p.Logger.Info("已启用子代理功能",
+		"timeout_sec", int(p.subagentTimeout().Seconds()),
+		"max_iterations", p.mainMaxIterations())
 
 	// Agent 团队：主 AI 通过 team_run 组建多代理团队并行执行子任务。
 	// 团队成员为带角色提示词的一次性子代理，复用子代理执行引擎；
 	// 团队定义持久化到 PersistentStorage（team: 命名空间，按会话 scope 隔离）
-	if p.cfg.Team.Enable {
-		p.teamManager = newTeamManager(p.PersistentStorage, p.Logger.WithGroup("team"))
-		p.Logger.Info("已启用Agent团队功能",
-			"timeout_sec", p.teamTimeout().Seconds(),
-			"max_iterations", p.teamMaxIterations(),
-			"max_result_len", p.teamMaxResultLen(),
-			"max_members", p.teamMaxMembers())
-	} else {
-		p.Logger.Info("Agent团队功能未启用（plugin.ai_chat_bot.team.enable=false）")
-	}
+	p.teamManager = newTeamManager(p.PersistentStorage, p.Logger.WithGroup("team"))
+	p.Logger.Info("已启用Agent团队功能", "max_members", teamMaxMembers)
 
 	// Query 日志：记录每次 AI 回复的完整执行过程（面板「Query 日志」页数据源）
 	p.initQueryLogger()
