@@ -448,7 +448,7 @@ func (s *Server) runUpdate(srcDir, gitURL, branch string) {
 
 	// 5. 编译 Go（输出名固定为 AniaBot.update，避免与运行中的二进制冲突）
 	upd.setPhase(upPhaseBuild)
-	upd.appendLog("== 编译 AniaBot ==")
+	upd.appendLog("== 编译 CocoBot ==")
 	ext := ""
 	if runtime.GOOS == "windows" {
 		ext = ".exe"
@@ -502,7 +502,7 @@ func (s *Server) runUpdate(srcDir, gitURL, branch string) {
 	// 7. 完成，延迟后重启（先让前端拿到 done 状态）
 	upd.finish()
 	upd.appendLog("== 更新完成，正在重启 ==")
-	s.opt.Logger.Info("自动更新完成，正在重启 AniaBot")
+	s.opt.Logger.Info("自动更新完成，正在重启 CocoBot")
 	go func() {
 		time.Sleep(1500 * time.Millisecond)
 		sysrestart.Self(s.opt.Logger)

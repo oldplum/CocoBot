@@ -24,7 +24,7 @@ func Self(logger *slog.Logger) {
 		logger.Error("重启失败：无法获取可执行文件路径")
 		return
 	}
-	logger.Info("正在重启 AniaBot...")
+	logger.Info("正在重启 CocoBot...")
 	runPreRestartHooks() // 重启前清理（如插件卸载钩子）
 	if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
 		restartStarted.Store(false)

@@ -13,7 +13,7 @@
       <div class="text-xs text-zinc-600 leading-relaxed">
         尚未配置源码目录。请先在
         <RouterLink to="/config" class="font-semibold text-zinc-900 underline underline-offset-2">配置管理</RouterLink>
-        的「自动更新」分组中设置 <span class="font-mono">bot.update.source_dir</span>（AniaBot 仓库的克隆路径）。
+        的「自动更新」分组中设置 <span class="font-mono">bot.update.source_dir</span>（CocoBot 仓库的克隆路径）。
       </div>
     </div>
 

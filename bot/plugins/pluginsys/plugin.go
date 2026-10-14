@@ -34,7 +34,7 @@ func NewPluginSys() *PluginSys {
 	return &PluginSys{
 		Meta: plugin.Meta{
 			Name:      "系统插件",
-			HelpWords: "AniaBot系统插件",
+			HelpWords: "CocoBot系统插件",
 			Order:     plugin.LevelLog - 100,
 			ShowFor:   plugininfo.ShowForGroup | plugininfo.ShowForFriend,
 			Author:    "jeanhua",
@@ -51,7 +51,7 @@ func (p *PluginSys) Awake(ctx context.Context, bot bot.Bot) error {
 		return nil
 	}
 	builder := msgchain.Builder().Friend()
-	builder.Text("AniaBot启动成功，发送 /help 查看插件加载信息")
+	builder.Text("CocoBot启动成功，发送 /help 查看插件加载信息")
 	_, ok := bot.SendFriendMsg(p.SystemConfig.AdminId, builder.Build())
 	if !ok {
 		p.Logger.Warn("启动成功消息发送失败（管理员不在线或所在平台未启用？）")
@@ -63,7 +63,7 @@ func (p *PluginSys) OnFriendMsg(ctx context.Context, bot bot.Bot, cmd command.Co
 	if cmd.Name == "help" {
 		plugins := bot.GetPluginList()
 		var pluginInfo strings.Builder
-		pluginInfo.WriteString("欢迎使用AniaBot，已加载插件:")
+		pluginInfo.WriteString("欢迎使用CocoBot，已加载插件:")
 		idx := 1
 		for _, info := range plugins {
 			if info.AdminOnly && msg.Sender.UserId != p.SystemConfig.AdminId {
@@ -86,7 +86,7 @@ func (p *PluginSys) OnFriendMsg(ctx context.Context, bot bot.Bot, cmd command.Co
 		return false, nil
 	} else if cmd.Name == "exit" && msg.Sender.UserId == p.SystemConfig.AdminId {
 		builder := msgchain.Builder().Friend()
-		builder.Text("AniaBot已退出")
+		builder.Text("CocoBot已退出")
 		_, ok := bot.SendFriendMsg(msg.Sender.UserId, builder.Build())
 		if !ok {
 			p.Logger.Error("Bot消息发送失败，无法响应 /exit")
@@ -97,7 +97,7 @@ func (p *PluginSys) OnFriendMsg(ctx context.Context, bot bot.Bot, cmd command.Co
 	} else if cmd.Name == "reboot" {
 		if msg.Sender.UserId != p.SystemConfig.AdminId {
 			builder := msgchain.Builder().Friend()
-			builder.Text("没有权限，只有管理员才能重启 AniaBot")
+			builder.Text("没有权限，只有管理员才能重启 CocoBot")
 			_, ok := bot.SendFriendMsg(msg.Sender.UserId, builder.Build())
 			if !ok {
 				p.Logger.Error("Bot消息发送失败，无法响应 /reboot")
@@ -105,7 +105,7 @@ func (p *PluginSys) OnFriendMsg(ctx context.Context, bot bot.Bot, cmd command.Co
 			return false, nil
 		}
 		builder := msgchain.Builder().Friend()
-		builder.Text("AniaBot即将重启，重启期间将短暂离线...")
+		builder.Text("CocoBot即将重启，重启期间将短暂离线...")
 		_, ok := bot.SendFriendMsg(msg.Sender.UserId, builder.Build())
 		if !ok {
 			p.Logger.Error("Bot消息发送失败，无法响应 /reboot")
@@ -125,7 +125,7 @@ func (p *PluginSys) OnGroupMsg(ctx context.Context, bot bot.Bot, cmd command.Com
 	if cmd.Name == "help" && cmd.Mention {
 		plugins := bot.GetPluginList()
 		var pluginInfo strings.Builder
-		pluginInfo.WriteString("\n欢迎使用AniaBot，已加载插件:")
+		pluginInfo.WriteString("\n欢迎使用CocoBot，已加载插件:")
 		idx := 1
 		for _, info := range plugins {
 			if info.AdminOnly && msg.Sender.UserId != p.SystemConfig.AdminId {
@@ -151,14 +151,14 @@ func (p *PluginSys) OnGroupMsg(ctx context.Context, bot bot.Bot, cmd command.Com
 		c := msgchain.Builder().Group()
 		c.Mention(msg.Sender.UserId)
 		if msg.Sender.UserId != p.SystemConfig.AdminId {
-			c.Text(" 没有权限，只有管理员才能重启 AniaBot")
+			c.Text(" 没有权限，只有管理员才能重启 CocoBot")
 			_, ok := bot.SendGroupMsg(msg.GroupId, c.Build())
 			if !ok {
 				p.Logger.Error("Bot消息发送失败，无法响应 /reboot")
 			}
 			return false, nil
 		}
-		c.Text(" AniaBot即将重启，重启期间将短暂离线...")
+		c.Text(" CocoBot即将重启，重启期间将短暂离线...")
 		_, ok := bot.SendGroupMsg(msg.GroupId, c.Build())
 		if !ok {
 			p.Logger.Error("Bot消息发送失败，无法响应 /reboot")

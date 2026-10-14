@@ -30,7 +30,7 @@ func Self(logger *slog.Logger) {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	logger.Info("正在重启 AniaBot...")
+	logger.Info("正在重启 CocoBot...")
 	runPreRestartHooks() // 重启前清理（如插件卸载钩子）
 	if err := cmd.Start(); err != nil {
 		logger.Error("重启失败", "error", err)
