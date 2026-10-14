@@ -9,7 +9,7 @@
       <linearGradient id="ania-logo-grad" x1="0" y1="0" x2="0" y2="14.4" gradientUnits="userSpaceOnUse">
         <stop offset="0" stop-color="#1d1d1f" />
         <stop offset="0.5" stop-color="#3a3a3c" />
-        <stop offset="1" stop-color="#0071e3" />
+        <stop offset="1" stop-color="#224294" />
       </linearGradient>
     </defs>
     <!-- ░ 轻影块 -->

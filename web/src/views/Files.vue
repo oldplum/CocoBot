@@ -33,7 +33,7 @@
         v-model="rawText"
         rows="20"
         spellcheck="false"
-        class="w-full bg-slate-950/85 text-slate-200 rounded-lg px-4 py-3 text-xs font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30"
+        class="w-full bg-slate-950/85 text-slate-200 rounded-lg px-4 py-3 text-xs font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#224294]/30"
       />
       <div class="flex items-center gap-3">
         <button class="px-3 py-1.5 text-sm rounded-lg border border-slate-300/60 text-slate-600 hover:bg-white/55 transition-colors" @click="formatRaw">格式化</button>
@@ -216,7 +216,7 @@
 import { computed, defineComponent, h, onMounted, reactive, ref } from 'vue'
 import { api } from '../api.js'
 
-const inputClass = 'w-full border border-slate-300/60 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30 focus:border-[#0071e3]/50 transition-shadow'
+const inputClass = 'w-full border border-slate-300/60 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#224294]/30 focus:border-[#224294]/50 transition-shadow'
 const labelClass = 'block text-xs font-medium text-slate-600 mb-1.5'
 
 // 键值对编辑器（环境变量 / 请求头）

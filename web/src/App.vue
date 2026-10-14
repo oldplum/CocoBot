@@ -1,7 +1,7 @@
 <template>
   <div v-if="!auth.checked" class="app-shell min-h-screen flex items-center justify-center">
     <div class="flex items-center gap-2 text-slate-400 text-sm">
-      <span class="w-4 h-4 border-2 border-black/10 border-t-[#0071e3] rounded-full animate-spin" />
+      <span class="w-4 h-4 border-2 border-black/10 border-t-[#224294] rounded-full animate-spin" />
       加载中...
     </div>
   </div>
@@ -56,7 +56,7 @@
         >
           <span v-html="item.icon" class="shrink-0 [&>svg]:w-4 [&>svg]:h-4" />
           {{ item.label }}
-          <span v-if="$route.path === item.to" class="ml-auto w-1.5 h-1.5 rounded-full bg-[#0071e3] shadow-[0_0_8px_2px_rgba(0,113,227,0.35)]" />
+          <span v-if="$route.path === item.to" class="ml-auto w-1.5 h-1.5 rounded-full bg-[#224294] shadow-[0_0_8px_2px_rgba(34,66,148,0.35)]" />
         </RouterLink>
       </nav>
 
@@ -106,7 +106,7 @@
     <!-- 重启中遮罩 -->
     <div v-if="restarting" class="fixed inset-0 bg-black/30 backdrop-blur-md flex items-center justify-center z-50 p-4">
       <div class="tcard p-8 w-80 max-w-full text-center space-y-3">
-        <span class="mx-auto block w-8 h-8 border-[3px] border-black/10 border-t-[#0071e3] rounded-full animate-spin" />
+        <span class="mx-auto block w-8 h-8 border-[3px] border-black/10 border-t-[#224294] rounded-full animate-spin" />
         <div class="text-sm font-semibold text-slate-900 tracking-[0.15em] uppercase">Rebooting</div>
         <p class="text-xs text-slate-500">配置修改将在重启后生效，恢复后页面自动刷新</p>
       </div>
@@ -260,12 +260,12 @@ async function onChangePwd() {
   -webkit-backdrop-filter: blur(20px) saturate(180%);
 }
 
-/* 当前导航项：淡淡一层系统蓝 + 蓝色文字（Apple 侧栏选中态） */
+/* 当前导航项：主题蓝 + 蓝色文字 */
 .nav-active {
-  color: #0066cc;
+  color: #1a3373;
   font-weight: 600;
-  border-color: rgb(0 113 227 / 0.14);
-  background: rgb(0 113 227 / 0.1);
+  border-color: rgb(34 66 148 / 0.14);
+  background: rgb(34 66 148 / 0.1);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.7);
 }
 

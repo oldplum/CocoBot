@@ -49,7 +49,7 @@
             v-for="s in filteredScopes"
             :key="s.scope"
             class="px-4 py-3 cursor-pointer transition-colors"
-            :class="current?.scope === s.scope ? 'bg-[#0071e3]/12' : 'hover:bg-white/55'"
+            :class="current?.scope === s.scope ? 'bg-[#224294]/12' : 'hover:bg-white/55'"
             @click="selectScope(s)"
           >
             <div class="flex items-center justify-between gap-2">
@@ -174,7 +174,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { api } from '../api.js'
 
-const inputClass = 'w-full border border-slate-300/60 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30 focus:border-[#0071e3]/50 transition-shadow'
+const inputClass = 'w-full border border-slate-300/60 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#224294]/30 focus:border-[#224294]/50 transition-shadow'
 
 const kindTabs = [
   { value: 'all', label: '全部' },

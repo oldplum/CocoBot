@@ -43,7 +43,7 @@
             v-for="s in filteredScopes"
             :key="s.scope"
             class="px-4 py-3 cursor-pointer transition-colors"
-            :class="current?.scope === s.scope ? 'bg-[#0071e3]/12' : 'hover:bg-white/55'"
+            :class="current?.scope === s.scope ? 'bg-[#224294]/12' : 'hover:bg-white/55'"
             @click="selectScope(s)"
           >
             <div class="flex items-center justify-between gap-2">
@@ -81,7 +81,7 @@
               <p v-if="t.desc" class="text-xs text-slate-500 mt-1.5">{{ t.desc }}</p>
               <ul class="mt-2.5 space-y-1.5">
                 <li v-for="m in t.members" :key="m.name" class="flex items-start gap-2">
-                  <span class="text-[11px] px-2 py-0.5 rounded-md bg-[#0071e3]/10 border border-zinc-200/60 font-mono text-zinc-700 shrink-0 mt-px">{{ m.name }}</span>
+                  <span class="text-[11px] px-2 py-0.5 rounded-md bg-[#224294]/10 border border-zinc-200/60 font-mono text-zinc-700 shrink-0 mt-px">{{ m.name }}</span>
                   <span class="text-xs text-slate-500 leading-relaxed wrap-break-word">{{ m.role || '（无角色描述）' }}</span>
                 </li>
               </ul>
@@ -131,7 +131,7 @@
           <div class="space-y-2">
             <div v-for="(m, i) in form.members" :key="i" class="border border-white/60 rounded-lg p-2.5 space-y-2">
               <div class="flex flex-wrap items-center gap-2">
-                <select :value="presetOf(m)" class="w-44 shrink-0 border border-slate-300/60 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30" @change="onPresetChange(m, $event)">
+                <select :value="presetOf(m)" class="w-44 shrink-0 border border-slate-300/60 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#224294]/30" @change="onPresetChange(m, $event)">
                   <option value="">自定义</option>
                   <option v-for="r in roles" :key="r.name" :value="r.name" :title="r.summary">
                     {{ r.name }} · {{ r.summary }}
@@ -173,7 +173,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { api } from '../api.js'
 
-const inputClass = 'w-full border border-slate-300/60 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30 focus:border-[#0071e3]/50 transition-shadow'
+const inputClass = 'w-full border border-slate-300/60 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#224294]/30 focus:border-[#224294]/50 transition-shadow'
 
 const kindTabs = [
   { value: 'all', label: '全部' },

@@ -106,7 +106,7 @@
       <!-- 移动端分组选择（桌面端用左侧导航） -->
       <div v-if="!rawMode" class="lg:hidden">
         <select
-          class="w-full bg-white border border-white/60 rounded-lg px-3 py-2.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30 focus:border-[#0071e3]/50 transition-shadow"
+          class="w-full bg-white border border-white/60 rounded-lg px-3 py-2.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[#224294]/30 focus:border-[#224294]/50 transition-shadow"
           :value="activeCategory"
           @change="selectCategory($event.target.value)"
         >
@@ -168,7 +168,7 @@
                 v-model="presetName"
                 type="text"
                 placeholder="预设名称，如：DeepSeek 日常"
-                class="flex-1 border border-slate-300/60 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30 focus:border-[#0071e3]/50 transition-shadow"
+                class="flex-1 border border-slate-300/60 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#224294]/30 focus:border-[#224294]/50 transition-shadow"
                 @keyup.enter="onSavePreset()"
               />
               <button
@@ -312,15 +312,15 @@
                   <div class="flex items-center gap-2.5 text-[11px] text-slate-400">
                     <span>已选 {{ selectedCount(field) }}/{{ (field.options || []).length }}</span>
                     <span class="h-3 w-px bg-slate-300/70" />
-                    <button type="button" class="hover:text-[#0066cc] transition-colors" @click="selectAllOptions(field)">全选</button>
-                    <button type="button" class="hover:text-[#0066cc] transition-colors" @click="clearOptions(field)">清空</button>
+                    <button type="button" class="hover:text-[#1a3373] transition-colors" @click="selectAllOptions(field)">全选</button>
+                    <button type="button" class="hover:text-[#1a3373] transition-colors" @click="clearOptions(field)">清空</button>
                   </div>
                 </div>
 
                 <label v-else-if="field.type === 'bool'" class="inline-flex items-center gap-2.5 cursor-pointer select-none py-1" @click.prevent="form[field.key] = !form[field.key]">
                   <span
                     class="relative inline-flex w-9 h-5 rounded-full transition-colors duration-200"
-                    :class="form[field.key] ? 'bg-[#0071e3]' : 'bg-slate-300/70'"
+                    :class="form[field.key] ? 'bg-[#224294]' : 'bg-slate-300/70'"
                   >
                     <span
                       class="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all duration-200"
@@ -353,7 +353,7 @@
       <!-- 高级模式：原始 JSON -->
       <section v-else class="bg-white rounded-xl shadow-sm border border-white/60 p-4 sm:p-6 space-y-3">
         <p class="text-xs text-slate-500">全部配置键的扁平 JSON 视图（键为小写点分路径）。编辑后点击保存。</p>
-        <textarea v-model="rawText" rows="24" spellcheck="false" class="w-full bg-slate-950/85 text-slate-200 rounded-lg px-4 py-3 text-xs font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30" />
+        <textarea v-model="rawText" rows="24" spellcheck="false" class="w-full bg-slate-950/85 text-slate-200 rounded-lg px-4 py-3 text-xs font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#224294]/30" />
         <div class="flex items-center gap-3">
           <button class="px-3 py-1.5 text-sm rounded-lg border border-slate-300/60 text-slate-600 hover:bg-white/55 transition-colors" @click="formatRaw">格式化</button>
           <button :disabled="saving" class="px-4 py-1.5 text-sm rounded-lg btn-accent disabled:opacity-40 transition-colors" @click="onSaveRaw">保存</button>
@@ -388,7 +388,7 @@ import { api } from '../api.js'
 import QrLoginCard from '../components/QrLoginCard.vue'
 
 const MASK = '********'
-const inputClass = 'w-full border border-slate-300/60 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30 focus:border-[#0071e3]/50 transition-shadow'
+const inputClass = 'w-full border border-slate-300/60 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#224294]/30 focus:border-[#224294]/50 transition-shadow'
 
 const iconSearch = '<svg fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/></svg>'
 const iconCheck = '<svg fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>'

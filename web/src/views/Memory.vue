@@ -43,7 +43,7 @@
             v-for="s in filteredScopes"
             :key="s.scope"
             class="px-4 py-3 cursor-pointer transition-colors"
-            :class="current?.scope === s.scope ? 'bg-[#0071e3]/12' : 'hover:bg-white/55'"
+            :class="current?.scope === s.scope ? 'bg-[#224294]/12' : 'hover:bg-white/55'"
             @click="selectScope(s)"
           >
             <div class="flex items-center justify-between gap-2">
@@ -76,7 +76,7 @@
               <p class="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap break-words">{{ e.content }}</p>
               <div class="flex items-center gap-1.5 mt-2 flex-wrap">
                 <span class="text-[11px] font-mono text-slate-400">{{ e.id }}</span>
-                <span v-if="e.user_id" class="text-[11px] px-2 py-0.5 rounded-full bg-[#0071e3]/10 text-zinc-500 border border-zinc-200/60 font-mono">{{ e.user_id }}</span>
+                <span v-if="e.user_id" class="text-[11px] px-2 py-0.5 rounded-full bg-[#224294]/10 text-zinc-500 border border-zinc-200/60 font-mono">{{ e.user_id }}</span>
                 <span v-for="t in e.tags" :key="t" class="text-[11px] px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-600">{{ t }}</span>
                 <span class="text-[11px] text-slate-400">记于 {{ fmtDate(e.created_at) }}</span>
               </div>
@@ -134,7 +134,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { api } from '../api.js'
 
-const inputClass = 'w-full border border-slate-300/60 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30 focus:border-[#0071e3]/50 transition-shadow'
+const inputClass = 'w-full border border-slate-300/60 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#224294]/30 focus:border-[#224294]/50 transition-shadow'
 
 const kindTabs = [
   { value: 'all', label: '全部' },

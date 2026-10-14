@@ -104,7 +104,7 @@ const categoryTabs = [
 
 const categoryLabels = Object.fromEntries(categoryTabs.map((t) => [t.value, t.label]))
 
-const inputClass = 'mt-1 w-full border border-zinc-300 rounded-md px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30 focus:border-[#0071e3]/50 transition-shadow bg-white'
+const inputClass = 'mt-1 w-full border border-zinc-300 rounded-md px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#224294]/30 focus:border-[#224294]/50 transition-shadow bg-white'
 
 // filters 为编辑中的条件，applied 为实际生效（已点查询/切换分类）的条件，
 // 自动刷新沿用 applied，避免输入到一半被轮询带出去

@@ -76,7 +76,7 @@
         class="batchbar px-4 py-3 flex items-center justify-between gap-3 flex-wrap"
       >
         <div class="flex items-center gap-2 text-xs text-zinc-600 flex-wrap">
-          <span class="tdot bg-[#0071e3]" />
+          <span class="tdot bg-[#224294]" />
           已选 <span class="font-semibold text-zinc-900">{{ selectedCount }}</span> 个插件
         </div>
         <div class="flex items-center gap-2">
@@ -210,7 +210,7 @@
                 @click="tab = t.key"
               >{{ t.label }}</button>
             </div>
-            <input v-model="keyword" placeholder="搜索名称 / 描述 / 作者 / 标签" class="w-full sm:w-72 text-xs bg-white border border-zinc-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30 focus:border-[#0071e3]/50 transition-shadow" />
+            <input v-model="keyword" placeholder="搜索名称 / 描述 / 作者 / 标签" class="w-full sm:w-72 text-xs bg-white border border-zinc-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#224294]/30 focus:border-[#224294]/50 transition-shadow" />
           </div>
           <div class="mt-3 flex items-center justify-between gap-3 flex-wrap text-[11px]">
             <div class="flex items-center gap-3 flex-wrap">

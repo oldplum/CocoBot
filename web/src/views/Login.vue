@@ -1,7 +1,7 @@
 <template>
   <div class="min-h-screen flex items-center justify-center relative overflow-hidden select-none p-4">
     <!-- 背景光斑 + 点阵网格（页面底色由全局浅灰底提供） -->
-    <div class="absolute -top-40 -left-40 w-125 h-125 rounded-full bg-[#0071e3]/10 blur-[120px]" />
+    <div class="absolute -top-40 -left-40 w-125 h-125 rounded-full bg-[#224294]/10 blur-[120px]" />
     <div class="absolute -bottom-40 -right-40 w-125 h-125 rounded-full bg-[#5ac8fa]/12 blur-[120px]" />
     <div
       class="absolute inset-0 pointer-events-none"
@@ -25,7 +25,7 @@
         <!-- 品牌标识：精致头像 + 现代高质感大字 + 状态徽章 -->
         <div class="text-center pt-1 pb-1 space-y-3.5">
           <div class="relative inline-block">
-            <div class="absolute -inset-2 rounded-full bg-gradient-to-tr from-[#0071e3]/25 via-[#5ac8fa]/20 to-purple-500/15 blur-lg opacity-80" />
+            <div class="absolute -inset-2 rounded-full bg-gradient-to-tr from-[#224294]/25 via-[#3259bd]/20 to-purple-500/15 blur-lg opacity-80" />
             <img
               :src="logoUrl"
               @error="onLogoError"
@@ -37,10 +37,10 @@
 
           <div>
             <div class="flex items-center justify-center gap-2">
-              <span class="text-3xl font-black tracking-[0.12em] bg-gradient-to-r from-slate-900 via-slate-800 to-[#0071e3] bg-clip-text text-transparent font-sans">
+              <span class="text-3xl font-black tracking-[0.12em] bg-gradient-to-r from-slate-900 via-slate-800 to-[#224294] bg-clip-text text-transparent font-sans">
                 COCOBOT
               </span>
-              <span class="text-[10px] px-2 py-0.5 rounded-full bg-[#0071e3]/10 text-[#0071e3] font-mono font-bold tracking-normal border border-[#0071e3]/20">
+              <span class="text-[10px] px-2 py-0.5 rounded-full bg-[#224294]/10 text-[#224294] font-mono font-bold tracking-normal border border-[#224294]/20">
                 {{ auth.cocobotVersion || 'v1.0.1' }}
               </span>
             </div>
@@ -49,7 +49,7 @@
             </div>
             <div class="mt-2">
               <span class="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[10px] text-slate-400 bg-black/[0.03] border border-black/[0.05]">
-                <span class="w-1.5 h-1.5 rounded-full bg-[#0071e3]/70" />
+                <span class="w-1.5 h-1.5 rounded-full bg-[#224294]/70" />
                 Based on AniaBot {{ auth.frameworkVersion || 'v4.7.8' }}
               </span>
             </div>
@@ -68,7 +68,7 @@
 
         <!-- 终端提示符式密码输入 -->
         <div class="flex items-center gap-2.5 font-mono">
-          <span class="text-[#0071e3] text-sm select-none" aria-hidden="true">➜</span>
+          <span class="text-[#224294] text-sm select-none" aria-hidden="true">➜</span>
           <input
             v-model="password"
             type="password"
@@ -76,7 +76,7 @@
             required
             autofocus
             aria-label="密码"
-            class="flex-1 min-w-0 bg-transparent! border-0! border-b! border-black/15! focus:border-[#0071e3]/70! shadow-none! rounded-none! px-1 py-1.5 text-sm text-[#1d1d1f] placeholder-slate-400 focus:outline-none transition-colors"
+            class="flex-1 min-w-0 bg-transparent! border-0! border-b! border-black/15! focus:border-[#224294]/70! shadow-none! rounded-none! px-1 py-1.5 text-sm text-[#1d1d1f] placeholder-slate-400 focus:outline-none transition-colors"
           />
         </div>
 

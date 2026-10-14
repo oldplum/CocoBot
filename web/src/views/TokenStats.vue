@@ -84,7 +84,7 @@
             v-for="r in RANGE_OPTIONS" :key="r.key"
             class="px-3 py-1.5 text-[10px] tracking-[0.15em] uppercase rounded-sm border transition-colors"
             :class="range === r.key
-              ? 'bg-[#0071e3] text-white border-[#0071e3] font-medium'
+              ? 'bg-[#224294] text-white border-[#224294] font-medium'
               : 'border-zinc-300 text-zinc-500 hover:text-zinc-900 hover:border-zinc-500'"
             @click="range = r.key"
           >{{ r.label }}</button>

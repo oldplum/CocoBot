@@ -51,7 +51,7 @@
                   :aria-checked="t.enabled"
                   :disabled="toggling.has(t.id)"
                   class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:opacity-50"
-                  :class="t.enabled ? 'bg-[#0071e3]' : 'bg-slate-300/70'"
+                  :class="t.enabled ? 'bg-[#224294]' : 'bg-slate-300/70'"
                   @click="toggleClock(t)"
                 >
                   <span
@@ -551,7 +551,7 @@ async function removeClock(t) {
   }
 }
 
-const inputClass = 'mt-1 w-full border border-zinc-300 rounded-md px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30 focus:border-[#0071e3]/50 transition-shadow bg-white'
+const inputClass = 'mt-1 w-full border border-zinc-300 rounded-md px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[#224294]/30 focus:border-[#224294]/50 transition-shadow bg-white'
 
 // filters 为编辑中的条件，applied 为实际生效（已点查询/切换类型）的条件，
 // 自动刷新沿用 applied，避免输入到一半被轮询带出去

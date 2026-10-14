@@ -12,9 +12,9 @@
 
 /* ============ 玻璃拟态设计令牌 ============ */
 :root {
-  --accent: #0071e3;                             /* Apple 系统蓝 */
-  --accent-strong: #0066cc;
-  --accent-soft: rgb(0 113 227 / 0.14);
+  --accent: #224294;                             /* 主题蓝 */
+  --accent-strong: #1a3373;
+  --accent-soft: rgb(34 66 148 / 0.14);
   --ink: #1d1d1f;                                /* Apple 主文字 */
   --ink-soft: #6e6e73;                           /* Apple 次级文字 */
 
@@ -42,9 +42,9 @@
     min-height: 100vh;
     background-color: #f5f5f7;
     background-image:
-      radial-gradient(70rem 46rem at 4% -12%, rgb(0 113 227 / 0.10), transparent 60%),
-      radial-gradient(58rem 40rem at 102% -6%, rgb(10 132 255 / 0.07), transparent 58%),
-      radial-gradient(64rem 46rem at 92% 106%, rgb(90 200 250 / 0.12), transparent 62%),
+      radial-gradient(70rem 46rem at 4% -12%, rgb(34 66 148 / 0.10), transparent 60%),
+      radial-gradient(58rem 40rem at 102% -6%, rgb(46 82 175 / 0.07), transparent 58%),
+      radial-gradient(64rem 46rem at 92% 106%, rgb(50 89 189 / 0.12), transparent 62%),
       linear-gradient(180deg, #fbfbfd 0%, #f5f5f7 52%, #eceef2 100%);
     background-attachment: fixed;
   }
@@ -58,7 +58,7 @@
   .app-shell button:focus-visible,
   .app-shell a:focus-visible,
   .app-shell [role="button"]:focus-visible {
-    outline: 2px solid rgb(0 113 227 / 0.5);
+    outline: 2px solid rgb(34 66 148 / 0.5);
     outline-offset: 2px;
   }
 
@@ -85,12 +85,12 @@
   transition: background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
 .app-shell input[type="checkbox"]:hover {
-  border-color: rgb(0 113 227 / 0.6);
+  border-color: rgb(34 66 148 / 0.6);
 }
 .app-shell input[type="checkbox"]:checked {
   border-color: transparent;
-  background: linear-gradient(180deg, #0a84ff, #0071e3);
-  box-shadow: 0 3px 8px -4px rgb(0 113 227 / 0.55), inset 0 1px 0 rgb(255 255 255 / 0.35);
+  background: linear-gradient(180deg, #3259bd, #224294);
+  box-shadow: 0 3px 8px -4px rgb(34 66 148 / 0.55), inset 0 1px 0 rgb(255 255 255 / 0.35);
 }
 .app-shell input[type="checkbox"]:checked::after {
   content: "";
@@ -106,8 +106,8 @@
 /* 半选态（如「全选当前列表」在部分勾选时）：系统蓝底 + 白色横杠 */
 .app-shell input[type="checkbox"]:indeterminate {
   border-color: transparent;
-  background: linear-gradient(180deg, #0a84ff, #0071e3);
-  box-shadow: 0 3px 8px -4px rgb(0 113 227 / 0.55), inset 0 1px 0 rgb(255 255 255 / 0.35);
+  background: linear-gradient(180deg, #3259bd, #224294);
+  box-shadow: 0 3px 8px -4px rgb(34 66 148 / 0.55), inset 0 1px 0 rgb(255 255 255 / 0.35);
 }
 .app-shell input[type="checkbox"]:indeterminate::after {
   content: "";
@@ -139,7 +139,7 @@
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(0 113 227 / 0.5);
+  background: rgb(34 66 148 / 0.5);
   background-clip: content-box;
 }
 
@@ -234,8 +234,8 @@
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.55);
 }
 .seg.on {
-  background: linear-gradient(180deg, #0a84ff, #0071e3);
-  box-shadow: 0 2px 8px -4px rgb(0 113 227 / 0.45), inset 0 1px 0 rgb(255 255 255 / 0.35);
+  background: linear-gradient(180deg, #3259bd, #224294);
+  box-shadow: 0 2px 8px -4px rgb(34 66 148 / 0.45), inset 0 1px 0 rgb(255 255 255 / 0.35);
 }
 .seg.on-ok {
   background: linear-gradient(180deg, #4cd964, #34c759);
@@ -327,15 +327,15 @@
   transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
 }
 .opt-chip:hover {
-  border-color: rgb(0 113 227 / 0.4);
+  border-color: rgb(34 66 148 / 0.4);
   background: rgb(255 255 255 / 0.82);
   color: #1d1d1f;
 }
 .opt-chip-on {
-  border-color: rgb(0 113 227 / 0.5);
-  background: linear-gradient(180deg, rgb(0 113 227 / 0.14), rgb(0 113 227 / 0.08));
-  color: #0066cc;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.6), 0 4px 12px -10px rgb(0 113 227 / 0.7);
+  border-color: rgb(34 66 148 / 0.5);
+  background: linear-gradient(180deg, rgb(34 66 148 / 0.14), rgb(34 66 148 / 0.08));
+  color: #1a3373;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.6), 0 4px 12px -10px rgb(34 66 148 / 0.7);
 }
 .opt-box {
   position: relative;
@@ -351,12 +351,12 @@
   transition: background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
 .opt-chip:hover .opt-box {
-  border-color: rgb(0 113 227 / 0.55);
+  border-color: rgb(34 66 148 / 0.55);
 }
 .opt-chip-on .opt-box {
   border-color: transparent;
-  background: linear-gradient(180deg, #0a84ff, #0071e3);
-  box-shadow: 0 3px 8px -4px rgb(0 113 227 / 0.55), inset 0 1px 0 rgb(255 255 255 / 0.35);
+  background: linear-gradient(180deg, #3259bd, #224294);
+  box-shadow: 0 3px 8px -4px rgb(34 66 148 / 0.55), inset 0 1px 0 rgb(255 255 255 / 0.35);
 }
 .opt-chip-on .opt-box::after {
   content: "";
@@ -373,14 +373,14 @@
 /* 主操作按钮（强调色玻璃渐变） */
 .btn-accent {  color: #fff;
   font-weight: 500;
-  background: linear-gradient(180deg, #0a84ff, #0071e3);
+  background: linear-gradient(180deg, #3259bd, #224294);
   border: 1px solid rgb(0 0 0 / 0.04);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12), 0 6px 16px -12px rgb(0 113 227 / 0.8), inset 0 1px 0 rgb(255 255 255 / 0.22);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12), 0 6px 16px -12px rgb(34 66 148 / 0.8), inset 0 1px 0 rgb(255 255 255 / 0.22);
   transition: filter 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 .btn-accent:hover {
   filter: brightness(1.05);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12), 0 8px 20px -12px rgb(0 113 227 / 0.9), inset 0 1px 0 rgb(255 255 255 / 0.24);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12), 0 8px 20px -12px rgb(34 66 148 / 0.9), inset 0 1px 0 rgb(255 255 255 / 0.24);
 }
 .btn-accent:active {
   transform: translateY(1px);
@@ -423,11 +423,11 @@
   background-color: rgb(142 142 147 / 0.5);
 }
 .app-shell [class~="bg-zinc-400"] {
-  background-color: rgb(10 132 255 / 0.4);
+  background-color: rgb(46 82 175 / 0.4);
 }
 .app-shell [class~="bg-zinc-700"],
 .app-shell [class~="bg-zinc-800"] {
-  background-color: #0071e3;
+  background-color: #224294;
 }
 .app-shell [class~="bg-zinc-900"] {
   background-color: rgb(26 30 46 / 0.92);
@@ -450,7 +450,7 @@
 }
 .app-shell [class~="hover:bg-zinc-700"]:hover,
 .app-shell [class~="hover:bg-zinc-800"]:hover {
-  background-color: #0066cc;
+  background-color: #1a3373;
 }
 /* 模板里大量 white 系悬停（玻璃时代的写法）：统一改为极淡灰底 */
 .app-shell [class~="hover:bg-white/55"]:hover,
@@ -528,10 +528,10 @@
 
 /* 焦点环：统一主题色 */
 .app-shell [class*="focus:ring-"]:focus {
-  --tw-ring-color: rgb(0 113 227 / 0.45);
+  --tw-ring-color: rgb(34 66 148 / 0.45);
 }
 .app-shell [class*="focus:border-"]:focus {
-  border-color: rgb(0 113 227 / 0.5);
+  border-color: rgb(34 66 148 / 0.5);
 }
 
 /* 例外：侧栏搜索框聚焦只加深中性描边，不显示主题色焦点环 */
@@ -607,7 +607,7 @@
 .markdown-body blockquote {
   margin: 0.8em 0;
   padding: 0.25em 1em;
-  border-left: 3px solid rgb(0 113 227 / 0.4);
+  border-left: 3px solid rgb(34 66 148 / 0.4);
   color: #5b6478;
   background: rgb(255 255 255 / 0.45);
   border-radius: 0 8px 8px 0;

@@ -44,7 +44,7 @@
               inputmode="numeric"
               maxlength="12"
               placeholder="手机上显示的数字"
-              class="w-40 border border-slate-300/60 rounded-lg px-3 py-2 text-sm text-center tracking-widest focus:outline-none focus:ring-2 focus:ring-[#0071e3]/30 focus:border-[#0071e3]/50"
+              class="w-40 border border-slate-300/60 rounded-lg px-3 py-2 text-sm text-center tracking-widest focus:outline-none focus:ring-2 focus:ring-[#224294]/30 focus:border-[#224294]/50"
               @keyup.enter="submitVerify"
             />
             <button
