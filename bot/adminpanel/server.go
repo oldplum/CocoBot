@@ -34,6 +34,7 @@ import (
 	"github.com/jeanhua/AniaBot/bot/component/tasklog"
 	"github.com/jeanhua/AniaBot/bot/core/configstore"
 	"github.com/jeanhua/AniaBot/bot/marketplace"
+	"github.com/jeanhua/AniaBot/bot/version"
 	"github.com/jeanhua/AniaBot/common/adapter"
 	"github.com/jeanhua/AniaBot/common/pluginconfig"
 	"github.com/jeanhua/AniaBot/common/plugininfo"
@@ -439,8 +440,10 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleMe(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":             true,
-		"setup_required": s.opt.Config.SetupPending(),
+		"ok":                true,
+		"setup_required":    s.opt.Config.SetupPending(),
+		"cocobot_version":   version.CocoVersion,
+		"framework_version": version.DisplayFrameworkVersion(),
 	})
 }
 
@@ -640,13 +643,15 @@ func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	}
 	uptime := time.Since(s.opt.Bot.StartTime())
 	writeJSON(w, http.StatusOK, map[string]any{
-		"uptime_sec":     int64(uptime.Seconds()),
-		"started_at":     s.opt.Bot.StartTime().Format(time.RFC3339),
-		"goroutines":     s.opt.Bot.GoroutineNum(),
-		"adapter_status": adapterStatus,
-		"adapter_detail": adapterDetail,
-		"adapters":       adapters,
-		"plugin_count":   len(s.opt.Bot.GetPluginList()),
+		"uptime_sec":        int64(uptime.Seconds()),
+		"started_at":        s.opt.Bot.StartTime().Format(time.RFC3339),
+		"goroutines":        s.opt.Bot.GoroutineNum(),
+		"adapter_status":    adapterStatus,
+		"adapter_detail":    adapterDetail,
+		"adapters":          adapters,
+		"plugin_count":      len(s.opt.Bot.GetPluginList()),
+		"cocobot_version":   version.CocoVersion,
+		"framework_version": version.DisplayFrameworkVersion(),
 	})
 }
 

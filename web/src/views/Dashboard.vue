@@ -192,16 +192,16 @@
 
         <dl class="flex-1 mt-3 text-xs">
           <div class="hostrow">
-            <dt class="tlabel">Hostname</dt>
-            <dd class="hostval" :title="host.hostname">{{ host.hostname || '—' }}</dd>
+            <dt class="tlabel">CocoBot</dt>
+            <dd class="hostval font-semibold text-[#0071e3]">{{ status.cocobot_version || 'v1.0.0' }}</dd>
+          </div>
+          <div class="hostrow">
+            <dt class="tlabel">Engine</dt>
+            <dd class="hostval">AniaBot {{ status.framework_version || 'v4.7.8' }}</dd>
           </div>
           <div class="hostrow">
             <dt class="tlabel">System</dt>
             <dd class="hostval" :title="host.os_version">{{ host.os_version || '—' }}</dd>
-          </div>
-          <div class="hostrow">
-            <dt class="tlabel">Kernel</dt>
-            <dd class="hostval">{{ host.kernel || '—' }}</dd>
           </div>
           <div class="hostrow">
             <dt class="tlabel">Uptime</dt>

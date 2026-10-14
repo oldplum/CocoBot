@@ -5,6 +5,8 @@ export const auth = reactive({
   checked: false,
   setupRequired: false,
   notice: '',
+  cocobotVersion: 'v1.0.0',
+  frameworkVersion: 'v4.7.8',
 })
 
 async function request(path, options = {}) {
@@ -41,6 +43,8 @@ export const api = {
       const me = await request('/api/me')
       auth.loggedIn = true
       auth.setupRequired = me.setup_required === true
+      if (me.cocobot_version) auth.cocobotVersion = me.cocobot_version
+      if (me.framework_version) auth.frameworkVersion = me.framework_version
     } catch {
       auth.loggedIn = false
     } finally {

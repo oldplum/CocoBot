@@ -24,7 +24,15 @@
         <span v-if="info && info.updateAvailable" class="tpill"><span class="tdot bg-[#34c759]" />有新版本</span>
         <span v-else-if="info && info.remoteCommit" class="tpill"><span class="tdot bg-zinc-300" />已是最新</span>
       </div>
-      <div v-if="info" class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div v-if="info" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+        <div>
+          <div class="tlabel mb-1">CocoBot 版本</div>
+          <div class="font-mono text-sm font-semibold text-[#0071e3]">{{ info.cocobot_version || 'v1.0.0' }}</div>
+        </div>
+        <div>
+          <div class="tlabel mb-1">AniaBot 核心</div>
+          <div class="font-mono text-sm font-semibold text-zinc-900">{{ info.framework_version || 'v4.7.8' }}</div>
+        </div>
         <div>
           <div class="tlabel mb-1">当前 Commit</div>
           <div class="font-mono text-sm text-zinc-900">{{ info.currentCommit || '—' }}</div>

@@ -198,12 +198,14 @@ func (s *Server) handleUpdateInfo(w http.ResponseWriter, r *http.Request) {
 	gitURL := s.cfgStr("bot.update.git_url")
 
 	info := map[string]any{
-		"mode":       mode,
-		"exe":        exe,
-		"configured": srcDir != "",
-		"sourceDir":  srcDir,
-		"branch":     branch,
-		"gitUrl":     gitURL,
+		"mode":              mode,
+		"exe":               exe,
+		"configured":        srcDir != "",
+		"sourceDir":         srcDir,
+		"branch":            branch,
+		"gitUrl":            gitURL,
+		"cocobot_version":   version.CocoVersion,
+		"framework_version": version.DisplayFrameworkVersion(),
 		"env": map[string]string{
 			"git":  toolVersion(ctx, "git", "--version"),
 			"go":   toolVersion(ctx, "go", "version"),
