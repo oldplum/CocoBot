@@ -1,16 +1,16 @@
 // 一次性工具：把 ASCII LOGO 转成 SVG path 数据（游程合并），用于生成 components/AsciiLogo.vue
 // 用法: node scripts/logo-to-svg.mjs
 
-// 原始字符画（ANSI Shadow 字体的 "AniaBot"，█ = 实心块，░ = 轻影块）
+// 原始字符画（ANSI Shadow 字体的 "CocoBot"，█ = 实心块，░ = 轻影块）
 const LOGO = `
-   █████████               ███            ███████████            █████   
-  ███░░░░░███             ░░░            ░░███░░░░░███          ░░███    
- ░███    ░███  ████████   ████   ██████   ░███    ░███  ██████  ███████  
- ░███████████ ░░███░░███ ░░███  ░░░░░███  ░██████████  ███░░███░░░███░   
- ░███░░░░░███  ░███ ░███  ░███   ███████  ░███░░░░░███░███ ░███  ░███    
- ░███    ░███  ░███ ░███  ░███  ███░░███  ░███    ░███░███ ░███  ░███ ███
- █████   █████ ████ █████ █████░░████████ ███████████ ░░██████   ░░█████ 
-░░░░░   ░░░░░ ░░░░ ░░░░░ ░░░░░  ░░░░░░░░ ░░░░░░░░░░░   ░░░░░░     ░░░░░  
+   █████████                              ███████████             █████   
+  ███░░░░░███                            ░░███░░░░░███           ░░███    
+ ███     ░░░    ██████   ██████   ██████  ░███    ░███  ██████   ███████  
+░███           ███░░███ ███░░███ ███░░███ ░██████████  ███░░███ ░░░███░   
+░███          ░███ ░███░███ ░░░ ░███ ░███ ░███░░░░░███░███ ░███   ░███    
+░░███     ███ ░███ ░███░███  ███░███ ░███ ░███    ░███░███ ░███   ░███ ███
+ ░░█████████  ░░██████ ░░██████ ░░██████  ███████████ ░░██████    ░░█████ 
+  ░░░░░░░░░    ░░░░░░   ░░░░░░   ░░░░░░  ░░░░░░░░░░░   ░░░░░░      ░░░░░  
 `
 const lines = LOGO.replace(/^\n/, '').replace(/\n$/, '').split('\n')
 
@@ -40,6 +40,10 @@ function pathsFor(ch) {
   return parts.join('')
 }
 
-console.log('W:', Math.max(...lines.map(l => l.length)), 'H:', lines.length * CELL_H)
-console.log('SOLID:', pathsFor('█'))
-console.log('DIM:', pathsFor('░'))
+import fs from 'fs'
+const w = Math.max(...lines.map(l => l.length))
+const h = lines.length * CELL_H
+const solid = pathsFor('█')
+const dim = pathsFor('░')
+fs.writeFileSync('scripts/svg_paths.json', JSON.stringify({ w, h, solid, dim }, null, 2), 'utf8')
+console.log('Saved to scripts/svg_paths.json: W=', w, 'H=', h)

@@ -18,7 +18,7 @@
         <span class="w-3 h-3 rounded-full bg-[#ff5f57]" />
         <span class="w-3 h-3 rounded-full bg-[#febc2e]" />
         <span class="w-3 h-3 rounded-full bg-[#28c840]" />
-        <span class="ml-3 font-mono text-xs text-slate-500">ania@bot: ~/console</span>
+        <span class="ml-3 font-mono text-xs text-slate-500">coco@bot: ~/console</span>
       </div>
 
       <div class="p-7 space-y-6">
@@ -27,7 +27,7 @@
 
         <div class="flex items-center gap-3">
           <span class="h-px flex-1 bg-black/8" />
-          <h1 class="text-[11px] tracking-[0.35em] text-slate-500 font-medium whitespace-nowrap">AniaBot 控制面板</h1>
+          <h1 class="text-[11px] tracking-[0.35em] text-slate-500 font-medium whitespace-nowrap">CocoBot 控制面板</h1>
           <span class="h-px flex-1 bg-black/8" />
         </div>
 

@@ -437,8 +437,8 @@ func (ania *AniaBot) Run() {
 	defer c.Stop()
 
 	fmt.Println(LogoASCII)
-	Logger().Info("Bot启动完成...")
-	oplog.Record(oplog.CategorySystem, "start", "AniaBot 启动完成")
+	Logger().Info("CocoBot 启动完成...")
+	oplog.Record(oplog.CategorySystem, "start", "CocoBot 启动完成")
 
 	// 首次启动（设置向导未完成）时适配器不会连接，跳过 Awake：
 	// 插件的 Awake 多依赖连接，此时触发只会发送失败；

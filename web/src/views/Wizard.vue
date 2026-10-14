@@ -21,9 +21,9 @@
         <!-- 步骤 0: 欢迎 -->
         <div v-if="step === 0" class="space-y-5 text-center">
           <div class="mx-auto w-14 h-14 rounded-2xl bg-linear-to-br from-[#0a84ff] to-[#0071e3] flex items-center justify-center text-white font-bold text-2xl shadow-lg">
-            A
+            C
           </div>
-          <h1 class="text-xl font-bold text-slate-800">欢迎使用 AniaBot 🎉</h1>
+          <h1 class="text-xl font-bold text-slate-800">欢迎使用 CocoBot 🎉</h1>
           <p class="text-sm text-slate-500 leading-relaxed">
             这是首次启动，接下来用两步完成最基本的配置：<br />
             <b>接入平台</b>（QQ / QQ 官方 / 飞书 / Telegram / Discord / 微信，可多选）和 <b>AI 对话模型</b>。<br />
