@@ -22,14 +22,41 @@
       </div>
 
       <div class="p-7 space-y-6">
-        <!-- 控制台同款 ASCII 标识（矢量版，见 components/AsciiLogo.vue） -->
-        <AsciiLogo class="mx-auto w-full max-w-[460px]" />
+        <!-- 品牌标识：精致头像 + 现代高质感大字 + 状态徽章 -->
+        <div class="text-center pt-1 pb-1 space-y-3.5">
+          <div class="relative inline-block">
+            <div class="absolute -inset-2 rounded-full bg-gradient-to-tr from-[#0071e3]/25 via-[#5ac8fa]/20 to-purple-500/15 blur-lg opacity-80" />
+            <img
+              :src="logoUrl"
+              @error="onLogoError"
+              alt="CocoBot"
+              class="relative w-20 h-20 mx-auto rounded-full object-cover shadow-xl ring-4 ring-white"
+            />
+            <span class="absolute bottom-0 right-0 w-4 h-4 rounded-full bg-[#34c759] ring-2 ring-white shadow-sm" title="系统正常" />
+          </div>
 
-        <div class="flex items-center gap-3">
-          <span class="h-px flex-1 bg-black/8" />
-          <h1 class="text-[11px] tracking-[0.35em] text-slate-500 font-medium whitespace-nowrap">CocoBot 控制面板</h1>
-          <span class="h-px flex-1 bg-black/8" />
+          <div>
+            <div class="flex items-center justify-center gap-2">
+              <span class="text-3xl font-black tracking-[0.12em] bg-gradient-to-r from-slate-900 via-slate-800 to-[#0071e3] bg-clip-text text-transparent font-sans">
+                COCOBOT
+              </span>
+              <span class="text-[10px] px-2 py-0.5 rounded-full bg-[#0071e3]/10 text-[#0071e3] font-mono font-bold tracking-normal border border-[#0071e3]/20">
+                {{ auth.cocobotVersion || 'v1.0.0' }}
+              </span>
+            </div>
+            <div class="text-[11px] text-slate-500 font-medium tracking-[0.25em] uppercase mt-1">
+              Console · 控制面板
+            </div>
+            <div class="mt-2">
+              <span class="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[10px] text-slate-400 bg-black/[0.03] border border-black/[0.05]">
+                <span class="w-1.5 h-1.5 rounded-full bg-[#0071e3]/70" />
+                Based on AniaBot {{ auth.frameworkVersion || 'v4.7.8' }}
+              </span>
+            </div>
+          </div>
         </div>
+
+        <div class="h-px bg-black/6" />
 
         <!-- 模拟启动日志 -->
         <div class="font-mono text-[11px] leading-relaxed space-y-1" aria-hidden="true">
@@ -71,7 +98,12 @@
 <script setup>
 import { ref } from 'vue'
 import { api, auth } from '../api.js'
-import AsciiLogo from '../components/AsciiLogo.vue'
+
+const fallbackLogo = import.meta.env.BASE_URL + 'logo.webp'
+const logoUrl = ref('https://q1.qlogo.cn/g?b=qq&nk=3815687323&s=640')
+const onLogoError = (e) => {
+  e.target.src = fallbackLogo
+}
 
 const password = ref('')
 const error = ref('')
