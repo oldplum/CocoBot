@@ -23,6 +23,24 @@
 
 ![pannel](./README/pannel.webp)
 
+## 自带与预装插件
+
+CocoBot 默认集成了以下内置插件与实用扩展，开箱即用：
+
+| 插件名称 | 标识 | 类型 | 功能说明 |
+| :--- | :--- | :--- | :--- |
+| **系统插件** | `pluginsys` | 系统核心 | 运行状态监控、启动通知、`/help` 帮助与 `/reboot` 重启 |
+| **日志审计** | `pluginlog` | 系统核心 | 控制台与消息全量结构化日志记录与审计 |
+| **消息拦截器** | `plugininterceptor` | 系统核心 | 权限与规则过滤、多群消息拦截控制 |
+| **AI 智能对话** | `pluginaichat` | 核心功能 | 多 LLM 支持、上下文记忆、知识库外挂、MCP/Skills/Tool Use |
+| **地震预警** | `plugineew` | 核心功能 | 实时推送全国地震预警与速报、日本 EEW 强震警报 |
+| **每日简报** | `pluginnews` | 核心功能 | 每日定时获取并推送 60s 读懂世界/新闻精选 |
+| **复读机** | `pluginrepeat` | 核心功能 | 群聊智能复读与高频消息统计 |
+| **防撤回** | `antiwithdrawal` | 预装扩展 | QQ 群/私聊撤回消息侦测与私聊备份提醒 |
+| **白名单管理** | `whitelist` | 预装扩展 | `/wl` 命令行管理群聊与私聊访问白名单 |
+
+> 提示：如需更多功能，可在控制台「插件市场」一键安装来自 [AniaBot-Plugins](https://github.com/AniaBot-Project/AniaBot-Plugins) 的丰富社区插件。
+
 ## 快速开始
 
 ```bash

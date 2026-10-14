@@ -20,6 +20,14 @@
 
 - 修复发送文件误报失败的问题。
 
+## [v1.0.0] - 2026-10-14
+
+### ✨ CocoBot 专属特性
+- **品牌定制**：全新定制 CocoBot 专属现代化 Web 控制台与登录页面，展示专属头像与优雅排版，副标清晰标明 `Based on AniaBot`。
+- **双版本号机制**：引入独立的发行版版本体系（CocoVersion `v1.0.0`），底层与 AniaBot 引擎版本（`v4.7.8`）联动并进。
+- **预装精选插件**：预装防撤回插件（`antiwithdrawal`）与白名单管理插件（`whitelist`）。
+- **底座与插件市场**：全量保留底层 AniaBot 开源底座能力，无缝兼容官方 [AniaBot-Plugins](https://github.com/AniaBot-Project/AniaBot-Plugins) 插件市场。
+
 ## [v4.7.8] - 2026-10-10
 
 ### 变更
