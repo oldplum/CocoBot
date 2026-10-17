@@ -439,10 +439,14 @@ func (m *clockManager) List() []*ClockTask {
 	return out
 }
 
-// refreshNextLocked 用 cron 调度器的最新状态刷新任务的 NextRunAt。
+// refreshNextLocked 用 cron 调度器的最新状态刷新内存中的 NextRunAt。
 // robfig/cron 每次触发后会自动推进 entry.Next，但任务结构体只在调度/新增/更新时
 // 同步过一次；若不刷新，面板与命令展示的「下次触发」会停留在上一次触发时间
 // （例如显示成昨天的任务）。调用方需持有 m.mu。
+//
+// 只更新内存、不落盘：List/Get 被面板轮询与 AI 工具高频调用，读接口写库会把
+// 「查看任务」变成写放大（SQLite 单连接下还会与对话历史写互抢连接）。
+// NextRunAt 是派生值，每次启动 scheduleLocked 都会重新计算并落盘。
 func (m *clockManager) refreshNextLocked(t *ClockTask) {
 	if t == nil || !t.Enabled {
 		return
@@ -457,7 +461,6 @@ func (m *clockManager) refreshNextLocked(t *ClockTask) {
 	}
 	if !t.NextRunAt.Equal(entry.Next) {
 		t.NextRunAt = entry.Next
-		m.persistTaskLocked(t)
 	}
 }
 
@@ -931,26 +934,40 @@ func (m *clockManager) sendFinalOutput(task *ClockTask, resp string, skipped boo
 	return m.sendText(task, resp)
 }
 
+// sendText 向任务目标发送文本。按空行拆分开关开启时拆成多条逐条发送
+// （群聊仅首条携带 @ 提醒），与主对话回复的拆分语义保持一致。
 func (m *clockManager) sendText(task *ClockTask, text string) bool {
 	if m.bot == nil {
 		return false
 	}
+	split := m.plugin != nil && m.plugin.cfg.Reply.SplitBlankLine
+	segments := replySegments(text, split)
 	targetQID := parseQID(task.TargetID)
 	if task.TargetType == clockTargetGroup {
-		builder := msgchain.Builder().Group()
-		if task.CreatedBy != "" {
-			builder.Mention(task.CreatedBy)
-			builder.Text(" " + text)
-		} else {
-			builder.Text(text)
+		for i, seg := range segments {
+			builder := msgchain.Builder().Group()
+			if i == 0 && task.CreatedBy != "" {
+				builder.Mention(task.CreatedBy)
+				builder.Text(" " + seg)
+			} else {
+				builder.Text(seg)
+			}
+			_, ok := m.bot.SendGroupMsg(targetQID, builder.Build())
+			if !ok {
+				return false
+			}
 		}
-		_, ok := m.bot.SendGroupMsg(targetQID, builder.Build())
-		return ok
+		return true
 	}
-	builder := msgchain.Builder().Friend()
-	builder.Text(text)
-	_, ok := m.bot.SendFriendMsg(targetQID, builder.Build())
-	return ok
+	for _, seg := range segments {
+		builder := msgchain.Builder().Friend()
+		builder.Text(seg)
+		_, ok := m.bot.SendFriendMsg(targetQID, builder.Build())
+		if !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *clockManager) parseTargetID(task *ClockTask) message.QID {
