@@ -26,10 +26,10 @@
         <div>
           <div class="text-[#1d1d1f] font-semibold leading-tight tracking-[0.2em] flex items-center gap-1.5">
             <span>COCOBOT</span>
-            <span class="text-[9px] px-1 py-0.2 bg-black/5 text-slate-600 rounded font-mono font-normal tracking-normal">{{ auth.cocobotVersion || 'v1.0.1' }}</span>
+            <span class="text-[9px] px-1 py-0.2 bg-black/5 text-slate-600 rounded font-mono font-normal tracking-normal">{{ auth.cocobotVersion || 'v1.3.0' }}</span>
           </div>
           <div class="text-[10px] text-slate-500 leading-tight tracking-[0.15em] uppercase mt-0.5">Console · 控制面板</div>
-          <div class="text-[9px] text-slate-400 leading-tight tracking-wider mt-0.5">Based on AniaBot {{ auth.frameworkVersion || 'v4.7.8' }}</div>
+          <div class="text-[9px] text-slate-400 leading-tight tracking-wider mt-0.5">Based on AniaBot {{ auth.frameworkVersion || 'v4.7.9' }}</div>
         </div>
         <button class="ml-auto md:hidden text-slate-500 hover:text-slate-900 p-1" aria-label="关闭菜单" @click="mobileOpen = false">
           <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>

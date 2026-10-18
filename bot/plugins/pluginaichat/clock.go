@@ -790,8 +790,10 @@ func (m *clockManager) executeTask(ctx context.Context, task *ClockTask, rec *ta
 		return "", mergeTokenUsage(usage, extra.take()), err
 	}
 	// 若任务 AI 委派了异步子代理：等待全部子代理返回，把结果回喂给 AI 合成
-	// 最终回复——只有这最后一轮输出才会推送，子代理返回前的中间回复不推送
-	if subagents.hasPending() {
+	// 最终回复——只有这最后一轮输出才会推送，子代理返回前的中间回复不推送。
+	// 判断用 hasLaunched 而非 hasPending：子代理可能在任务 AI 自己的轮次结束前
+	// 就已完成，用 pending 判断会让这些已产出的结果被静默丢弃（token 已消耗）。
+	if subagents.hasLaunched() {
 		resp, usage = m.drainClockSubagents(ctx, task, chat, cbs, subagents, resp, usage)
 	}
 	// 子代理在 drain 期间完成并把用量计入 extra；此处统一并入。
@@ -845,9 +847,9 @@ func (m *clockManager) makeClockCallback(ctx context.Context, task *ClockTask, u
 
 	qid := parseQID(targetIDStr)
 	cbs := llmtool.CallBackFuncs{
-		// SendText 是多轮工具循环中模型中间轮文本的自动回执通道。
-		// 定时任务不自动回显——数字人要主动发消息必须显式调用 send_message 工具；
-		// 这里仅记录日志，丢弃中间轮文本，避免触发对象收到非预期的多条消息。
+		// SendText 供工具显式发消息：定时任务不自动回显——数字人要主动发消息
+		// 必须显式调用 send_message 工具；这里仅记录日志并丢弃文本，避免触发
+		// 对象收到非预期的多条消息。
 		SendText: func(s string) (string, error) {
 			logger.Info("定时任务丢弃中间轮文本（未主动发送）", "task", task.ID, "text", s)
 			return "已记录，未发送", nil

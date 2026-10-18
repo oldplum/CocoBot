@@ -5,8 +5,8 @@ export const auth = reactive({
   checked: false,
   setupRequired: false,
   notice: '',
-  cocobotVersion: 'v1.2.0',
-  frameworkVersion: 'v4.7.8',
+  cocobotVersion: 'v1.3.0',
+  frameworkVersion: 'v4.7.9',
 })
 
 async function request(path, options = {}) {

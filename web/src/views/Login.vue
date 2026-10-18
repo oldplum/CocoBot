@@ -41,7 +41,7 @@
                 COCOBOT
               </span>
               <span class="text-[10px] px-2 py-0.5 rounded-full bg-[#224294]/10 text-[#224294] font-mono font-bold tracking-normal border border-[#224294]/20">
-                {{ auth.cocobotVersion || 'v1.2.0' }}
+                {{ auth.cocobotVersion || 'v1.3.0' }}
               </span>
             </div>
             <div class="text-[11px] text-slate-500 font-medium tracking-[0.25em] uppercase mt-1">
@@ -50,7 +50,7 @@
             <div class="mt-2">
               <span class="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[10px] text-slate-400 bg-black/[0.03] border border-black/[0.05]">
                 <span class="w-1.5 h-1.5 rounded-full bg-[#224294]/70" />
-                Based on AniaBot {{ auth.frameworkVersion || 'v4.7.8' }}
+                Based on AniaBot {{ auth.frameworkVersion || 'v4.7.9' }}
               </span>
             </div>
           </div>
