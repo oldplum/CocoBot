@@ -68,14 +68,15 @@
     "label": "源码目录",
     "type": "string",
     "group": "自动更新",
-    "help": "AniaBot 仓库的克隆路径（独立目录），自动更新在此拉取并编译；留空则禁用自动更新"
+    "help": "CocoBot 仓库的克隆路径（独立目录），自动更新在此拉取并编译；留空则禁用自动更新"
   },
   {
     "key": "bot.update.git_url",
     "label": "Git 地址",
     "type": "string",
     "group": "自动更新",
-    "help": "非空时更新前覆盖源码目录的 origin 地址"
+    "default": "https://github.com/oldplum/CocoBot.git",
+    "help": "非空时更新前覆盖源码目录的 origin 地址；默认指向 CocoBot 仓库"
   },
   {
     "key": "bot.update.branch",

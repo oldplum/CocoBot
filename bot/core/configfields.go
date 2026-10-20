@@ -24,8 +24,8 @@ var frameworkConfigFields = []pluginconfig.Field{
 	{Key: "bot.store.cache.redis.db", Label: "Redis DB", Type: "int", Group: "缓存存储", Default: 0},
 
 	// 自动更新
-	{Key: "bot.update.source_dir", Label: "源码目录", Type: "string", Group: "自动更新", Help: "AniaBot 仓库的克隆路径（独立目录），自动更新在此拉取并编译；留空则禁用自动更新"},
-	{Key: "bot.update.git_url", Label: "Git 地址", Type: "string", Group: "自动更新", Help: "非空时更新前覆盖源码目录的 origin 地址"},
+	{Key: "bot.update.source_dir", Label: "源码目录", Type: "string", Group: "自动更新", Help: "CocoBot 仓库的克隆路径（独立目录），自动更新在此拉取并编译；留空则禁用自动更新"},
+	{Key: "bot.update.git_url", Label: "Git 地址", Type: "string", Group: "自动更新", Default: "https://github.com/oldplum/CocoBot.git", Help: "非空时更新前覆盖源码目录的 origin 地址；默认指向 CocoBot 仓库"},
 	{Key: "bot.update.branch", Label: "跟踪分支", Type: "string", Group: "自动更新", Default: "main"},
 
 	// API 余额查询（面板概览页展示，修改后即时生效，无需重启）

@@ -196,6 +196,9 @@ func (s *Server) handleUpdateInfo(w http.ResponseWriter, r *http.Request) {
 		branch = "main"
 	}
 	gitURL := s.cfgStr("bot.update.git_url")
+	if gitURL == "" {
+		gitURL = "https://github.com/oldplum/CocoBot.git"
+	}
 
 	info := map[string]any{
 		"mode":              mode,
@@ -318,6 +321,9 @@ func (s *Server) handleUpdateStart(w http.ResponseWriter, r *http.Request) {
 		branch = "main"
 	}
 	gitURL := s.cfgStr("bot.update.git_url")
+	if gitURL == "" {
+		gitURL = "https://github.com/oldplum/CocoBot.git"
+	}
 
 	if !upd.tryBegin() {
 		writeError(w, http.StatusConflict, "已有更新任务正在进行中或正在重启")
