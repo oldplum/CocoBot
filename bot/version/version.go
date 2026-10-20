@@ -9,7 +9,7 @@ package version
 const ldflagsPath = "github.com/jeanhua/AniaBot/bot/version.Version"
 
 // CocoVersion CocoBot 专属定制发行版版本号。
-var CocoVersion = "v1.3.0"
+var CocoVersion = "v1.3.1"
 
 // FrameworkVersion 底层 AniaBot 框架引擎版本号。
 var FrameworkVersion = "v4.7.9"
