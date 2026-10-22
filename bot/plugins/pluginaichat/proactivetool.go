@@ -64,7 +64,7 @@ func (t *proactiveCreateTool) Execute(_ context.Context, params any, _ llmtool.C
 		return "", fmt.Errorf("主动互动未启用")
 	}
 	if !t.mgr.enabled(t.scope) {
-		return "当前会话未开启主动互动，这次想法没有保存。需要管理员发送 /proactive on（或在面板「AI 对话 · 主动互动」里把本会话加入白名单）后才会生效。", nil
+		return "当前会话未开启主动互动，这次想法没有保存。需要管理员发送 /proactive on（群聊里要先 @ 机器人；或在面板「AI 对话 · 主动互动」里把本会话加入白名单）后才会生效。", nil
 	}
 	if p.DelayMinutes < 1 || p.DelayMinutes > 10080 {
 		return "", fmt.Errorf("delay_minutes 需要在 1~10080 之间（分钟）")
@@ -147,6 +147,10 @@ func (t *proactiveCancelTool) Execute(_ context.Context, params any, _ llmtool.C
 		return "", fmt.Errorf("主动互动未启用")
 	}
 	id := strings.TrimSpace(p.ID)
+	// 正在执行的意图取消不到：执行结束会写回 sent，这里先明确拒绝
+	if t.mgr.isRunning(id) {
+		return "这条意图正在执行，无法取消；执行结束后可用 proactive_list 确认结果。", nil
+	}
 	for _, it := range t.mgr.store.pendingByScope(t.scope) {
 		if it.ID != id {
 			continue

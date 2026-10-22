@@ -182,13 +182,10 @@ func (p *AIChatPlugin) OnGroupMsg(ctx context.Context, bot bot.Bot, cmd command.
 	if !p.ready {
 		return true, nil
 	}
-	// 主动互动：先记录现场（机器人本来就收得到全部群消息），再看是不是开关指令。
-	// 两者都在 mention 门之前——管理员往往不 @ 机器人就直接发 /proactive on。
+	// 主动互动：记录现场要覆盖全部群消息，所以放在 mention 门之前；
+	// /proactive 指令本身放在门之后（群聊指令统一要求 @ 机器人）。
 	if p.proactiveManager != nil {
 		p.proactiveManager.noteMessage(msg, true)
-	}
-	if cmd.Name == "proactive" {
-		return p.handleProactiveCommand(ctx, bot, cmd, msg)
 	}
 	// 工具审批回复必须最先拦截：审批等待期间会话锁被占用（回复走不到正常聊天
 	// 流程），且回复通常不带 @（mention 门会把它挡掉）
@@ -200,10 +197,6 @@ func (p *AIChatPlugin) OnGroupMsg(ctx context.Context, bot bot.Bot, cmd command.
 			}
 			return false, nil
 		}
-	}
-
-	if cmd.Name == "clock" {
-		return p.handleClockCommand(ctx, bot, cmd, msg)
 	}
 
 	if !cmd.Mention {
@@ -218,6 +211,16 @@ func (p *AIChatPlugin) OnGroupMsg(ctx context.Context, bot bot.Bot, cmd command.
 			}
 		}
 		return true, nil
+	}
+
+	// 群聊指令统一要求 @ 机器人（与 /stop、/plan 及其他插件一致），
+	// 不 @ 的 /proactive、/clock 会被上面的 mention 门当成普通消息拦下。
+	if cmd.Name == "proactive" {
+		return p.handleProactiveCommand(ctx, bot, cmd, msg)
+	}
+
+	if cmd.Name == "clock" {
+		return p.handleClockCommand(ctx, bot, cmd, msg)
 	}
 
 	if cmd.Name == "stop" {
@@ -404,12 +407,9 @@ func (p *AIChatPlugin) OnFriendMsg(ctx context.Context, bot bot.Bot, cmd command
 	if !p.ready {
 		return true, nil
 	}
-	// 主动互动：先记录现场，再看是不是开关指令（都在 mention 门之前）
+	// 主动互动：先记录现场（与群聊一致，开关指令本身无 mention 门概念）
 	if p.proactiveManager != nil {
 		p.proactiveManager.noteMessage(msg, false)
-	}
-	if cmd.Name == "proactive" {
-		return p.handleProactiveCommand(ctx, bot, cmd, msg)
 	}
 	// 工具审批回复必须最先拦截：审批等待期间会话锁被占用，回复走不到正常聊天流程
 	if p.approvalManager != nil {
@@ -424,6 +424,10 @@ func (p *AIChatPlugin) OnFriendMsg(ctx context.Context, bot bot.Bot, cmd command
 
 	if cmd.Name == "clock" {
 		return p.handleClockCommand(ctx, bot, cmd, msg)
+	}
+
+	if cmd.Name == "proactive" {
+		return p.handleProactiveCommand(ctx, bot, cmd, msg)
 	}
 
 	if cmd.Name == "stop" {
@@ -731,13 +735,13 @@ func (p *AIChatPlugin) processChatBatch(ctx context.Context, b bot.Bot, id messa
 		return true
 	}
 
-	// 主动互动的现场标记：机器人刚说过话，短时间内不应再主动开口
-	p.noteBotSpoke(id, isGroup)
-
 	p.Logger.Info("AI请求token消耗", "id", id, "is_group", isGroup, "batch", len(batch), "prompt_tokens", usage.PromptTokens, "completion_tokens", usage.CompletionTokens, "total_tokens", usage.TotalTokens)
 
+	// 主动互动的现场标记：机器人刚说过话，短时间内不应再主动开口。只在确实
+	// 发出回复后标记（流式已推送 / 合并转发 / 逐条发送），发送失败不算说过话。
 	// 流式已发出回复时不再走一次性发送（内容已逐字展示在流式消息中）
 	if stream != nil && stream.Streaming() {
+		p.noteBotSpoke(id, isGroup)
 		return true
 	}
 
@@ -750,6 +754,7 @@ func (p *AIChatPlugin) processChatBatch(ctx context.Context, b bot.Bot, id messa
 		// 拆分发送时仅首条携带 @ 提及（合并转发为首节点），避免每条回复都提醒
 		mentions := batchMentions(batch)
 		if shouldMergeGroupReply(segments) && sendGroupForwardReply(b, id, segments, mentions, batchSelfID(batch), p.Logger) {
+			p.noteBotSpoke(id, isGroup)
 			return true
 		}
 		for i, seg := range segments {
@@ -775,6 +780,7 @@ func (p *AIChatPlugin) processChatBatch(ctx context.Context, b bot.Bot, id messa
 			}
 		}
 	}
+	p.noteBotSpoke(id, isGroup)
 	return true
 }
 
