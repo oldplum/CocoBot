@@ -193,11 +193,11 @@
         <dl class="flex-1 mt-3 text-xs">
           <div class="hostrow">
             <dt class="tlabel">CocoBot</dt>
-            <dd class="hostval font-semibold text-[#224294]">{{ status.cocobot_version || 'v1.3.2' }}</dd>
+            <dd class="hostval font-semibold text-[#224294]">{{ status.cocobot_version || 'v1.4.0' }}</dd>
           </div>
           <div class="hostrow">
             <dt class="tlabel">Engine</dt>
-            <dd class="hostval">AniaBot {{ status.framework_version || 'v4.7.9' }}</dd>
+            <dd class="hostval">AniaBot {{ status.framework_version || 'v4.8.0' }}</dd>
           </div>
           <div class="hostrow">
             <dt class="tlabel">System</dt>

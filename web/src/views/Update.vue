@@ -27,11 +27,11 @@
       <div v-if="info" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         <div>
           <div class="tlabel mb-1">CocoBot 版本</div>
-          <div class="font-mono text-sm font-semibold text-[#224294]">{{ info.cocobot_version || 'v1.3.2' }}</div>
+          <div class="font-mono text-sm font-semibold text-[#224294]">{{ info.cocobot_version || 'v1.4.0' }}</div>
         </div>
         <div>
           <div class="tlabel mb-1">AniaBot 核心</div>
-          <div class="font-mono text-sm font-semibold text-zinc-900">{{ info.framework_version || 'v4.7.9' }}</div>
+          <div class="font-mono text-sm font-semibold text-zinc-900">{{ info.framework_version || 'v4.8.0' }}</div>
         </div>
         <div>
           <div class="tlabel mb-1">当前 Commit</div>

@@ -91,6 +91,9 @@ type AIChatPlugin struct {
 	// clockManager AI 定时任务调度器；为 nil 表示功能未启用
 	clockManager *clockManager
 
+	// proactiveManager 主动互动调度器（意图队列）；为 nil 表示功能未启用
+	proactiveManager *proactiveManager
+
 	// memoryManager 长期记忆管理器；为 nil 表示功能未启用
 	memoryManager *memoryManager
 
@@ -179,6 +182,14 @@ func (p *AIChatPlugin) OnGroupMsg(ctx context.Context, bot bot.Bot, cmd command.
 	if !p.ready {
 		return true, nil
 	}
+	// 主动互动：先记录现场（机器人本来就收得到全部群消息），再看是不是开关指令。
+	// 两者都在 mention 门之前——管理员往往不 @ 机器人就直接发 /proactive on。
+	if p.proactiveManager != nil {
+		p.proactiveManager.noteMessage(msg, true)
+	}
+	if cmd.Name == "proactive" {
+		return p.handleProactiveCommand(ctx, bot, cmd, msg)
+	}
 	// 工具审批回复必须最先拦截：审批等待期间会话锁被占用（回复走不到正常聊天
 	// 流程），且回复通常不带 @（mention 门会把它挡掉）
 	if p.approvalManager != nil {
@@ -210,7 +221,7 @@ func (p *AIChatPlugin) OnGroupMsg(ctx context.Context, bot bot.Bot, cmd command.
 	}
 
 	if cmd.Name == "stop" {
-		isAdmin := msg.Sender.UserId == p.SystemConfig.AdminId
+		isAdmin := p.SystemConfig.IsAdmin(msg.Sender.UserId)
 		stopped, denied := p.stopRequest(msg.GroupId, true, msg.Sender.UserId, isAdmin)
 		if denied != "" {
 			builder := msgchain.Builder().Group()
@@ -393,6 +404,13 @@ func (p *AIChatPlugin) OnFriendMsg(ctx context.Context, bot bot.Bot, cmd command
 	if !p.ready {
 		return true, nil
 	}
+	// 主动互动：先记录现场，再看是不是开关指令（都在 mention 门之前）
+	if p.proactiveManager != nil {
+		p.proactiveManager.noteMessage(msg, false)
+	}
+	if cmd.Name == "proactive" {
+		return p.handleProactiveCommand(ctx, bot, cmd, msg)
+	}
 	// 工具审批回复必须最先拦截：审批等待期间会话锁被占用，回复走不到正常聊天流程
 	if p.approvalManager != nil {
 		text, _ := utils.ExtraMessageStr(msg)
@@ -409,7 +427,7 @@ func (p *AIChatPlugin) OnFriendMsg(ctx context.Context, bot bot.Bot, cmd command
 	}
 
 	if cmd.Name == "stop" {
-		isAdmin := msg.Sender.UserId == p.SystemConfig.AdminId
+		isAdmin := p.SystemConfig.IsAdmin(msg.Sender.UserId)
 		stopped, denied := p.stopRequest(msg.Sender.UserId, false, msg.Sender.UserId, isAdmin)
 		if denied != "" {
 			builder := msgchain.Builder().Friend()
@@ -713,6 +731,9 @@ func (p *AIChatPlugin) processChatBatch(ctx context.Context, b bot.Bot, id messa
 		return true
 	}
 
+	// 主动互动的现场标记：机器人刚说过话，短时间内不应再主动开口
+	p.noteBotSpoke(id, isGroup)
+
 	p.Logger.Info("AI请求token消耗", "id", id, "is_group", isGroup, "batch", len(batch), "prompt_tokens", usage.PromptTokens, "completion_tokens", usage.CompletionTokens, "total_tokens", usage.TotalTokens)
 
 	// 流式已发出回复时不再走一次性发送（内容已逐字展示在流式消息中）
@@ -770,20 +791,25 @@ func (p *AIChatPlugin) sendPlainText(b bot.Bot, id message.QID, isGroup bool, te
 	}
 }
 
-// buildAdminPromptSender 构造把管理员审批提示私聊发给管理员的闭包（配置修改类
-// 工具的管理员审批提示默认发到管理员私聊，管理员在私聊中回复「允许/拒绝」）。
-// 管理员 ID 未设置时返回 nil；发送失败（如管理员未加机器人好友）返回 false，
+// buildAdminPromptSender 构造把管理员审批提示私聊发给全部管理员的闭包（配置修改类
+// 工具的管理员审批提示默认发到管理员私聊，任一管理员在私聊中回复「允许/拒绝」均可）。
+// 未配置管理员时返回 nil；全部发送失败（如管理员均未加机器人好友）返回 false，
 // 审批管理器会回退到在发起会话内提示。
 func (p *AIChatPlugin) buildAdminPromptSender(b bot.Bot) func(text string) bool {
-	admin := p.SystemConfig.AdminId
-	if admin == message.FromUint64(0) {
+	admins := p.SystemConfig.Admins()
+	if len(admins) == 0 {
 		return nil
 	}
 	return func(text string) bool {
-		builder := msgchain.Builder().Friend()
-		builder.Text(text)
-		_, ok := b.SendFriendMsg(admin, builder.Build())
-		return ok
+		sent := false
+		for _, admin := range admins {
+			builder := msgchain.Builder().Friend()
+			builder.Text(text)
+			if _, ok := b.SendFriendMsg(admin, builder.Build()); ok {
+				sent = true
+			}
+		}
+		return sent
 	}
 }
 
@@ -940,7 +966,7 @@ func (p *AIChatPlugin) Start(ctx context.Context, cfg *viper.Viper) error {
 		approvalToolNames = strings.Split(p.cfg.Approval.Tools, ",")
 	}
 	if p.cfg.Approval.Enable || p.cfg.ConfigTool.Enable {
-		p.approvalManager = newApprovalManager(approvalToolNames, p.cfg.Approval.TimeoutSec, p.SystemConfig.AdminId, p.Logger)
+		p.approvalManager = newApprovalManager(approvalToolNames, p.cfg.Approval.TimeoutSec, p.SystemConfig.Admins(), p.Logger)
 		if p.cfg.Approval.Enable {
 			p.Logger.Info("已启用工具审批", "tools", p.approvalManager.tools, "timeout_sec", p.cfg.Approval.TimeoutSec)
 		} else {
@@ -1045,6 +1071,14 @@ func (p *AIChatPlugin) Start(ctx context.Context, cfg *viper.Viper) error {
 		p.Logger.Info("已启用AI定时任务功能", "tasks", len(p.clockManager.List()), "default_timeout_sec", defaultTimeoutSec)
 	} else {
 		p.Logger.Info("AI定时任务功能未启用（plugin.ai_chat_bot.clock.enable=false）")
+	}
+
+	// 主动互动：意图队列 + tick 调度（默认关闭；需要 SQL 后端持久化意图）。
+	// 建表失败时 newProactiveManager 记错误日志并返回 nil，功能降级不影响对话。
+	if p.cfg.Proactive.Enable {
+		p.proactiveManager = newProactiveManager(p)
+	} else {
+		p.Logger.Info("主动互动未启用（plugin.ai_chat_bot.proactive.enable=false）")
 	}
 
 	// 语义向量计算器：知识库与长期记忆共享（复用 kb.embedding 配置）
@@ -1155,6 +1189,9 @@ func (p *AIChatPlugin) Start(ctx context.Context, cfg *viper.Viper) error {
 func (p *AIChatPlugin) Awake(ctx context.Context, bot bot.Bot) error {
 	if p.clockManager != nil {
 		p.clockManager.Start(bot)
+	}
+	if p.proactiveManager != nil {
+		p.proactiveManager.Start(bot)
 	}
 	return nil
 }
