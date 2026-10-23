@@ -41,7 +41,7 @@
                 COCOBOT
               </span>
               <span class="text-[10px] px-2 py-0.5 rounded-full bg-[#224294]/10 text-[#224294] font-mono font-bold tracking-normal border border-[#224294]/20">
-                {{ auth.cocobotVersion || 'v1.4.1' }}
+                {{ auth.cocobotVersion || 'v1.4.2' }}
               </span>
             </div>
             <div class="text-[11px] text-slate-500 font-medium tracking-[0.25em] uppercase mt-1">

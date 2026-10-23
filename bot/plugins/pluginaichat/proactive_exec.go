@@ -3,8 +3,8 @@ package pluginaichat
 // 主动互动的执行路径：把一条到点的意图变成一条真正发出去的消息。
 //
 // 与 AI 定时任务（clock）共用同一套「一次性会话」思路：每次执行为全新的
-// ChatBot（historyStore 传 nil，不落盘、执行后丢弃），带完整工具能力；中间轮
-// 文本丢弃，只发最终回复。区别在于：
+// ChatBot（会话历史只读回放、本次结果不落盘，执行后丢弃），带完整工具能力；
+// 中间轮文本丢弃，只发最终回复。区别在于：
 //   - 提示词不是「完成任务」，而是「决定要不要主动说、说什么」；
 //   - 多一个 skip_output 出口：AI 判断此刻没什么可说的就保持安静；
 //   - 发送成功后进入回应观察窗口（见 proactive.go 的 settleOutcomes）。
@@ -19,6 +19,7 @@ import (
 	"github.com/jeanhua/AniaBot/bot/component/agenthook"
 	"github.com/jeanhua/AniaBot/bot/component/aichat"
 	"github.com/jeanhua/AniaBot/bot/component/llmtool"
+	"github.com/jeanhua/AniaBot/bot/component/querylog"
 	"github.com/jeanhua/AniaBot/common/aitool"
 	"github.com/jeanhua/AniaBot/common/bot"
 	"github.com/jeanhua/AniaBot/common/model/message"
@@ -77,12 +78,18 @@ func (m *proactiveManager) execute(it *ProactiveIntention, forced bool) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), m.timeout)
 	defer cancel()
+	// 锁确认丢失时取消本次生成（与主对话路径同一策略）：此时会话可能已被
+	// 他人接管，宁可这次不发言，也不要在没有锁的情况下继续生成并写回历史
+	lock.attachCancel(cancel)
 
 	start := time.Now()
-	res, usage, err := m.chat(ctx, it, id, isGroup, b)
+	res, usage, rec, err := m.chat(ctx, it, id, isGroup, b)
 	p.quotaManager.Add(it.Scope, usage)
 
 	if err != nil {
+		// 本次生成无论成败都已产生 token 消耗（失败可能发生在工具轮之后），
+		// 先按错误收尾日志，再决定是顺延重试还是作废
+		p.finishProactiveQuery(rec, usage, "", "", "", err)
 		it.Attempts++
 		if errors.Is(err, context.DeadlineExceeded) {
 			m.closeIntention(it, proactiveStatusFailed, fmt.Sprintf("执行超时（%s）", m.timeout))
@@ -101,12 +108,15 @@ func (m *proactiveManager) execute(it *ProactiveIntention, forced bool) {
 		if reason == "" {
 			reason = "未说明原因"
 		}
+		// 保持安静也是一次完整的 AI 判断：token 照记，原因写进日志说明
+		p.finishProactiveQuery(rec, usage, querylog.StatusSkipped, "", "AI 判断此刻无需发言："+reason, nil)
 		m.closeIntention(it, proactiveStatusCancelled, "AI 判断此刻无需发言："+reason)
 		return
 	}
 
 	text := strings.TrimSpace(res.reply)
 	if text == "" {
+		p.finishProactiveQuery(rec, usage, querylog.StatusSkipped, "", "AI 没有输出可发送的内容", nil)
 		m.closeIntention(it, proactiveStatusCancelled, "AI 没有输出可发送的内容")
 		return
 	}
@@ -114,6 +124,11 @@ func (m *proactiveManager) execute(it *ProactiveIntention, forced bool) {
 	ok, sentAny := m.send(b, id, isGroup, text)
 	if !ok {
 		it.Attempts++
+		sendErr := errors.New("发送失败")
+		if sentAny {
+			sendErr = errors.New("部分内容已发出，为避免重复不再重试")
+		}
+		p.finishProactiveQuery(rec, usage, "", text, "", sendErr)
 		// 已经发出了一部分：重试会把前面的片段再发一遍，宁可不补也不重复
 		if sentAny {
 			m.closeIntention(it, proactiveStatusFailed, "部分内容已发出，为避免重复不再重试")
@@ -126,6 +141,9 @@ func (m *proactiveManager) execute(it *ProactiveIntention, forced bool) {
 		m.closeIntention(it, proactiveStatusFailed, "发送失败")
 		return
 	}
+	// 发出成功：日志回填实际发出的内容（含 token / 工具调用），面板与 Token
+	// 统计都能看到这次主动发言的成本与结果
+	p.finishProactiveQuery(rec, usage, "", text, "", nil)
 
 	now := time.Now()
 	it.Status = proactiveStatusSent
@@ -133,6 +151,9 @@ func (m *proactiveManager) execute(it *ProactiveIntention, forced bool) {
 	it.Reply = truncateRunes(text, proactiveMaxReplyRunes)
 	it.Reason = ""
 	m.storeSent(it)
+	// 把这句话写回会话历史：主动互动走的是独立的一次性会话，不写回的话
+	// 主对话完全不知道自己刚说过什么（用户接话时上下文里只有用户那句）
+	m.recordUtterance(id, isGroup, text)
 	m.noteBotSpoke(id, isGroup)
 
 	// 进入观察窗口：窗口内有人说话记为 replied，否则 tick 里结算为 ignored
@@ -146,8 +167,65 @@ func (m *proactiveManager) execute(it *ProactiveIntention, forced bool) {
 		"tokens", usage.TotalTokens)
 }
 
-// chat 构建一次性会话并生成「这一次要说什么」（不发送）。
-func (m *proactiveManager) chat(ctx context.Context, it *ProactiveIntention, id message.QID, isGroup bool, b bot.Bot) (proactiveResult, aichat.TokenUsage, error) {
+// recordUtterance 把主动发出的内容写回会话历史，让主对话（以及重启后的下一轮）
+// 知道自己说过这句话。
+//
+// 主动互动的生成走「一次性会话」（历史只读回放、本次结果不落盘），发出的
+// 内容不会像普通回复那样由 Chat 自动落盘；不补这一步的话，用户接一句
+// 「你刚才说什么」，主对话的历史里只有用户消息、没有它自己那句，AI 就只能
+// 反问你指什么。
+//
+// 会话驻留时追加到内存窗口（同时随窗口落盘）；未驻留时直接写持久化历史，
+// 下次重建会话时会随历史一起回放。历史后端不可用（未启用 SQL）时自然降级。
+//
+// 调用点在持有会话锁期间执行（见 execute），写入先于锁释放完成：此时主对话
+// 不可能正在响应（抢锁失败的主动互动只会顺延），排队消息则要等锁释放后才被
+// 消费——因此它们一定排在这条主动发言之后，历史顺序与真实发言顺序一致。
+func (m *proactiveManager) recordUtterance(id message.QID, isGroup bool, text string) {
+	p := m.plugin
+	text = strings.TrimSpace(text)
+	if p == nil || text == "" {
+		return
+	}
+	key := sessionKey(id, isGroup)
+	if v, ok := p.chats.Load(key); ok {
+		if e, ok2 := v.(*chatEntry); ok2 && e.chat != nil {
+			e.chat.AppendHistory(aichat.TextMessage(aichat.RoleAssistant, text))
+			return
+		}
+	}
+	if p.historyDB == nil {
+		return
+	}
+	store := newSQLHistoryStore(p.historyDB, key, p.Logger)
+	if err := store.Append(context.Background(), []aichat.Message{
+		aichat.TextMessage(aichat.RoleAssistant, text),
+	}); err != nil {
+		p.Logger.Warn("主动发言写回会话历史失败", "key", key, "error", err.Error())
+	}
+}
+
+// readOnlyHistory 只读的会话历史：Load 透传，Append/Replace/Clear 一律丢弃。
+//
+// 主动互动的生成需要读会话历史（否则每次开口都像第一次进这个群），但这次
+// 生成本身不能写进真实历史——触发提示词、中间工具轮、最终回复都只服务这一次
+// 判断，真实历史里只应出现最终真的发出去了的那句话（见 recordUtterance）。
+// 包装成只读后，Chat 的窗口照常回放与追加，压缩/截断也只作用于内存副本。
+type readOnlyHistory struct {
+	inner aichat.HistoryStore
+}
+
+func (r readOnlyHistory) Load(ctx context.Context) ([]aichat.Message, error) {
+	return r.inner.Load(ctx)
+}
+
+func (readOnlyHistory) Append(context.Context, []aichat.Message) error  { return nil }
+func (readOnlyHistory) Replace(context.Context, []aichat.Message) error { return nil }
+func (readOnlyHistory) Clear(context.Context) error                     { return nil }
+
+// chat 构建一次性会话并生成「这一次要说什么」（不发送）。返回本次执行的
+// Query 日志记录器（日志未启用时为 nil），由 execute 在发送 / 跳过 / 失败后收尾。
+func (m *proactiveManager) chat(ctx context.Context, it *ProactiveIntention, id message.QID, isGroup bool, b bot.Bot) (proactiveResult, aichat.TokenUsage, *queryRecorder, error) {
 	p := m.plugin
 
 	prompt := p.getPromptForID(id, isGroup)
@@ -185,14 +263,31 @@ func (m *proactiveManager) chat(ctx context.Context, it *ProactiveIntention, id 
 	}
 
 	baseURL, apiKey, model, format := p.subagentLLMConfig()
+	// 会话历史只读回放：要接着之前的话题说，就得先看到聊到哪儿了；但本次生成
+	// 的触发提示词与回复只留在内存窗口（执行后丢弃），不污染真实历史。
+	var history aichat.HistoryStore
+	if p.historyDB != nil {
+		history = readOnlyHistory{inner: newSQLHistoryStore(p.historyDB, sessionKey(id, isGroup), p.Logger)}
+	}
 	chat, err := aichat.NewChatBot(
 		baseURL, apiKey, model,
-		prompt, p.cfg.MaxContextTokens, sessionExecutor, nil,
+		prompt, p.cfg.MaxContextTokens, sessionExecutor, history,
 		aichat.WithClientOptions(append(p.llmClientOptions(), aichat.WithAPIFormat(format))...),
 		aichat.WithScenePrompt(scene),
 	)
 	if err != nil {
-		return proactiveResult{}, aichat.TokenUsage{}, fmt.Errorf("创建对话失败: %w", err)
+		return proactiveResult{}, aichat.TokenUsage{}, nil, fmt.Errorf("创建对话失败: %w", err)
+	}
+	// Query 日志：主动互动与普通对话共用一份日志（面板按 Kind 区分），记录
+	// 「这次为什么开口」、实际发出内容与 token 消耗；工具调用由观察者逐条落盘
+	rec := p.beginProactiveQuery(chat, id, isGroup, m.triggerSummary(it))
+	defer chat.SetToolObserver(nil)
+	// 回放历史（与 getChat 同口径的超时）：加载失败按空历史继续，不能因为
+	// 历史读不出来就不敢开口
+	if history != nil {
+		loadCtx, cancelLoad := context.WithTimeout(context.Background(), historyLoadTimeout)
+		chat.LoadHistory(loadCtx)
+		cancelLoad()
 	}
 	chat.SetMaxIterations(p.mainMaxIterations())
 	if p.skillManager != nil {
@@ -214,7 +309,7 @@ func (m *proactiveManager) chat(ctx context.Context, it *ProactiveIntention, id 
 	resp, usage, err := chat.Chat(ctx, m.buildPrompt(it, id, isGroup), m.callbacks(ctx, b, id, isGroup, &extra), chatOpts)
 	usage = mergeTokenUsage(usage, extra.take())
 	if err != nil {
-		return proactiveResult{}, usage, err
+		return proactiveResult{}, usage, rec, err
 	}
 
 	// Stop 钩子（仅通知）：一次主动发言尝试结束
@@ -227,7 +322,7 @@ func (m *proactiveManager) chat(ctx context.Context, it *ProactiveIntention, id 
 	}
 
 	skipped, skipReason := output.skipped()
-	return proactiveResult{reply: resp, skipped: skipped, skipReason: skipReason}, usage, nil
+	return proactiveResult{reply: resp, skipped: skipped, skipReason: skipReason}, usage, rec, nil
 }
 
 // buildPrompt 构造「要不要主动说话」的触发内容。
@@ -288,6 +383,11 @@ func (m *proactiveManager) buildPrompt(it *ProactiveIntention, id message.QID, i
 		sb.WriteString("）\n")
 	}
 
+	if spoken := m.recentUtterances(it.Scope, proactiveRecentUtterances); spoken != "" {
+		sb.WriteString("\n你最近主动说过的话（别重复，也不用装作没说过）：\n")
+		sb.WriteString(spoken)
+	}
+
 	if ctxText := m.scopeContext(it.Scope); ctxText != "" {
 		sb.WriteString("\n最近的消息：\n")
 		sb.WriteString(ctxText)
@@ -308,6 +408,65 @@ func (m *proactiveManager) scopeContext(scope string) string {
 		return strings.TrimSpace(snap.Context)
 	}
 	return ""
+}
+
+// triggerSummary 生成写进 Query 日志的触发说明：来源、意图内容与现场近况，
+// 方便在面板里回看「这次为什么开口 / 打算说什么」。完整提示词还包括输出要求等
+// 固定段落（见 buildPrompt），日志只保留人能读懂的触发部分。
+func (m *proactiveManager) triggerSummary(it *ProactiveIntention) string {
+	var sb strings.Builder
+	sb.WriteString("【主动互动 · ")
+	switch it.Source {
+	case proactiveSourceIdle:
+		sb.WriteString("冷场触发")
+	case proactiveSourceAI:
+		sb.WriteString("AI 预约")
+	case proactiveSourceManual:
+		sb.WriteString("手动触发")
+	default:
+		sb.WriteString(it.Source)
+	}
+	sb.WriteString("】")
+	if it.ID != "" {
+		sb.WriteString("意图 ")
+		sb.WriteString(it.ID)
+	}
+	sb.WriteString("\n")
+
+	snap := m.snapshot(it.Scope)
+	switch it.Source {
+	case proactiveSourceIdle:
+		if snap != nil && !snap.LastHumanAt.IsZero() {
+			sb.WriteString("会话已安静 ")
+			sb.WriteString(formatDurationCN(time.Since(snap.LastHumanAt)))
+			sb.WriteString("，由 AI 判断是否开口。\n")
+		} else {
+			sb.WriteString("会话长时间没有新消息，由 AI 判断是否开口。\n")
+		}
+	case proactiveSourceAI:
+		sb.WriteString("到点执行：\n")
+		sb.WriteString(strings.TrimSpace(it.Prompt))
+		sb.WriteString("\n")
+		if note := strings.TrimSpace(it.Note); note != "" {
+			sb.WriteString("备注：" + note + "\n")
+		}
+	case proactiveSourceManual:
+		if prompt := strings.TrimSpace(it.Prompt); prompt != "" {
+			sb.WriteString("管理员希望你说：\n" + prompt + "\n")
+		} else {
+			sb.WriteString("管理员手动触发，未指定内容，由 AI 自行决定。\n")
+		}
+		if note := strings.TrimSpace(it.Note); note != "" {
+			sb.WriteString("备注：" + note + "\n")
+		}
+	}
+	if snap != nil {
+		if recent := strings.TrimSpace(snap.Context); recent != "" {
+			sb.WriteString("最近消息：\n")
+			sb.WriteString(recent)
+		}
+	}
+	return strings.TrimSpace(sb.String())
 }
 
 // callbacks 构造主动互动执行用的工具回调。
