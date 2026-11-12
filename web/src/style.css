@@ -21,49 +21,49 @@
 
 /* ============ 设计令牌 ============ */
 :root {
-  /* 主色（CocoBot 专属深海蓝） */
+  /* 主色（CocoBot 专属深海蓝 #224294） */
   --accent: #224294;
   --accent-hover: #2e54b6;
   --accent-strong: #1a3373;
   --accent-tint: #edf2fc;
   --accent-soft: rgb(34 66 148 / 0.14);
 
-  /* 文字（暖棕系） */
-  --ink: #5f4423;         /* 标题 */
-  --ink-body: #725d42;    /* 正文 */
-  --ink-soft: #8a7b66;    /* 次级文字 */
-  --ink-muted: #9a8b72;   /* 更浅的说明文字 */
-  --ink-disabled: #c4b89e;
+  /* 文字（现代高级石板冷灰梯度） */
+  --ink: #0f172a;         /* 标题 Slate-900 */
+  --ink-body: #1e293b;    /* 正文 Slate-800 */
+  --ink-soft: #475569;    /* 次级文字 Slate-600 */
+  --ink-muted: #64748b;   /* 说明文字 Slate-500 */
+  --ink-disabled: #94a3b8; /* 禁用态 Slate-400 */
 
-  /* 表面（奶油米白） */
-  --surface: #fffdf7;     /* 卡片 / 弹窗 */
-  --surface-2: #f7f3df;   /* 内嵌块 */
-  --surface-3: #f0e8d8;   /* 次级底 / 表头 */
-  --surface-input: #fffbe7;
-  --page-bg: #efe5cd;     /* 页面底：比主题库 Card 底色更深一档，卡片才浮得出来 */
+  /* 表面（纯净现代科技白） */
+  --surface: #ffffff;     /* 卡片 / 弹窗：纯白立体 */
+  --surface-2: #f8fafc;   /* 内嵌块 Slate-50 */
+  --surface-3: #f1f5f9;   /* 次级底 / 表头 Slate-100 */
+  --surface-input: #ffffff;
+  --page-bg: #f4f6fa;     /* 页面底色：清爽微冰浅灰白 */
 
-  /* 描边 */
-  --line: #ece0c9;
-  --line-strong: #e0d2b6;
-  --line-input: #d9cdb4;
+  /* 描边（精致石板灰） */
+  --line: #e2e8f0;        /* Slate-200 */
+  --line-strong: #cbd5e1; /* Slate-300 */
+  --line-input: #cbd5e1;
 
   /* 状态色 */
-  --ok: #6fba2c;
-  --ok-ink: #4f9417;
-  --ok-soft: #eaf6db;
-  --warn: #f5c31c;
-  --warn-ink: #a97606;
-  --warn-soft: #fff4cf;
-  --danger: #e05a5a;
-  --danger-ink: #d94f4f;
-  --danger-soft: #ffe9e9;
-  --focus-ring: #ffcc00;
+  --ok: #16a34a;
+  --ok-ink: #15803d;
+  --ok-soft: #f0fdf4;
+  --warn: #eab308;
+  --warn-ink: #ca8a04;
+  --warn-soft: #fefce8;
+  --danger: #ef4444;
+  --danger-ink: #dc2626;
+  --danger-soft: #fef2f2;
+  --focus-ring: #224294;
 
-  /* 阴影（暖色调，非冷黑） */
-  --shadow-sm: 0 2px 4px 0 rgb(61 52 40 / 0.06);
-  --shadow-base: 0 3px 10px 0 rgb(61 52 40 / 0.1);
-  --shadow-lg: 0 8px 24px 0 rgb(61 52 40 / 0.14);
-  --shadow-3d: #bdaea0;
+  /* 阴影（冷灰自然高级阴影） */
+  --shadow-sm: 0 1px 3px 0 rgb(15 23 42 / 0.06);
+  --shadow-base: 0 4px 12px 0 rgb(15 23 42 / 0.08);
+  --shadow-lg: 0 10px 25px 0 rgb(15 23 42 / 0.12);
+  --shadow-3d: #cbd5e1;
 }
 
 @layer base {
@@ -82,17 +82,17 @@
     min-height: 100vh;
     background-color: var(--page-bg);
     background-image:
-      radial-gradient(60rem 40rem at 2% -12%, rgb(25 200 185 / 0.12), transparent 58%),
-      radial-gradient(52rem 36rem at 98% -8%, rgb(247 205 103 / 0.18), transparent 56%),
-      radial-gradient(circle, rgb(196 184 158 / 0.3) 1.1px, transparent 1.1px);
-    background-size: auto, auto, 22px 22px;
+      radial-gradient(60rem 40rem at 2% -12%, rgb(34 66 148 / 0.08), transparent 58%),
+      radial-gradient(52rem 36rem at 98% -8%, rgb(46 82 175 / 0.06), transparent 56%),
+      radial-gradient(circle, rgb(148 163 184 / 0.22) 1.1px, transparent 1.1px);
+    background-size: auto, auto, 24px 24px;
     background-attachment: fixed;
   }
 
   /* 选中文字：鹅黄高亮 */
   ::selection {
-    background: #ffe9a8;
-    color: var(--ink);
+    background: #dbeafe;
+    color: #1e3a8a;
   }
 
   /* 键盘焦点：主题库统一的鹅黄焦点圈 */
@@ -194,7 +194,7 @@
   border-radius: 999px;
   border: 2px solid #fff;
   background: var(--accent);
-  box-shadow: 0 1px 3px rgb(61 52 40 / 0.35), 0 0 0 1px var(--accent-strong);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 0.35), 0 0 0 1px var(--accent-strong);
   transition: transform 0.15s ease;
 }
 .app-shell input[type="range"]:hover::-webkit-slider-thumb {
@@ -227,7 +227,7 @@
   border-radius: 999px;
   border: 2px solid #fff;
   background: var(--accent);
-  box-shadow: 0 1px 3px rgb(61 52 40 / 0.35), 0 0 0 1px var(--accent-strong);
+  box-shadow: 0 1px 3px rgb(15 23 42 / 0.35), 0 0 0 1px var(--accent-strong);
 }
 .app-shell input[type="range"]:disabled {
   opacity: 0.5;
@@ -484,7 +484,7 @@
   background-color: var(--surface);
 }
 .app-shell [class~="bg-white/85"] {
-  background-color: rgb(255 253 247 / 0.85);
+  background-color: rgb(255 255 255 / 0.88);
 }
 .app-shell [class~="bg-slate-50"],
 .app-shell [class~="bg-slate-50/60"],
@@ -498,24 +498,24 @@
 }
 .app-shell [class~="bg-slate-100"],
 .app-shell [class~="bg-zinc-100"] {
-  background-color: #f5efe0;
+  background-color: #f1f5f9;
 }
 .app-shell [class~="bg-slate-200/60"],
 .app-shell [class~="bg-zinc-200"],
 .app-shell [class~="bg-zinc-200/70"] {
-  background-color: #efe6d3;
+  background-color: #e2e8f0;
 }
 /* 图表 / 进度条：主数据用薄荷青绿，次级用暖沙色，底衬用浅沙色 */
 .app-shell [class~="bg-zinc-300"],
 .app-shell [class~="bg-slate-300"],
 .app-shell [class~="bg-slate-300/70"] {
-  background-color: #e7dcc4;
+  background-color: #cbd5e1;
 }
 .app-shell [class~="bg-zinc-400"] {
-  background-color: #b9e7df;
+  background-color: rgb(34 66 148 / 0.25);
 }
 .app-shell [class~="bg-zinc-500"] {
-  background-color: #7fbfb4;
+  background-color: rgb(34 66 148 / 0.55);
 }
 .app-shell [class~="bg-zinc-700"],
 .app-shell [class~="bg-zinc-800"] {
@@ -535,20 +535,20 @@
 }
 /* 深色终端 / 代码编辑区：主题库代码块的暖黑 */
 .app-shell [class~="bg-slate-950/85"] {
-  background-color: rgb(43 33 24 / 0.96);
+  background-color: rgb(15 23 42 / 0.96);
 }
 .app-shell [class~="bg-black/[0.03]"] {
-  background-color: rgb(114 93 66 / 0.05);
+  background-color: rgb(15 23 42 / 0.03);
 }
 .app-shell [class~="bg-black/5"] {
-  background-color: rgb(114 93 66 / 0.07);
+  background-color: rgb(15 23 42 / 0.05);
 }
 .app-shell [class~="bg-black/8"] {
-  background-color: rgb(114 93 66 / 0.1);
+  background-color: rgb(15 23 42 / 0.07);
 }
 /* 弹窗遮罩：暖褐色而非冷灰 */
 .app-shell [class~="bg-black/30"] {
-  background-color: rgb(43 33 24 / 0.42);
+  background-color: rgb(15 23 42 / 0.42);
 }
 
 /* ---- 悬停态 ---- */
@@ -556,7 +556,7 @@
 .app-shell [class~="hover:bg-slate-100"]:hover,
 .app-shell [class~="hover:bg-zinc-200"]:hover,
 .app-shell [class~="hover:bg-slate-200/60"]:hover {
-  background-color: rgb(114 93 66 / 0.08);
+  background-color: rgb(15 23 42 / 0.06);
 }
 .app-shell [class~="hover:bg-slate-50"]:hover,
 .app-shell [class~="hover:bg-zinc-50"]:hover,
@@ -565,7 +565,7 @@
 .app-shell [class~="hover:bg-slate-50/70"]:hover,
 .app-shell [class~="hover:bg-slate-50/80"]:hover,
 .app-shell [class~="hover:bg-black/5"]:hover {
-  background-color: rgb(114 93 66 / 0.05);
+  background-color: rgb(15 23 42 / 0.03);
 }
 .app-shell [class~="hover:bg-zinc-700"]:hover,
 .app-shell [class~="hover:bg-zinc-800"]:hover {
@@ -575,7 +575,7 @@
 .app-shell [class~="hover:bg-white/55"]:hover,
 .app-shell [class~="hover:bg-white/60"]:hover,
 .app-shell [class~="hover:bg-white/70"]:hover {
-  background-color: rgb(114 93 66 / 0.06);
+  background-color: rgb(15 23 42 / 0.04);
 }
 .app-shell [class~="hover:bg-red-50"]:hover,
 .app-shell [class~="hover:bg-red-100"]:hover {
@@ -630,7 +630,7 @@
 }
 .app-shell [class~="text-zinc-800"],
 .app-shell [class~="text-slate-800"] {
-  color: #6b5030;
+  color: #1e293b;
 }
 .app-shell [class~="text-zinc-700"],
 .app-shell [class~="text-slate-700"] {
@@ -638,7 +638,7 @@
 }
 .app-shell [class~="text-zinc-600"],
 .app-shell [class~="text-slate-600"] {
-  color: #87735a;
+  color: #475569;
 }
 .app-shell [class~="text-zinc-500"],
 .app-shell [class~="text-slate-500"] {
@@ -654,10 +654,10 @@
 }
 .app-shell [class~="text-zinc-200"],
 .app-shell [class~="text-slate-200"] {
-  color: #ded3bb;
+  color: #cbd5e1;
 }
 .app-shell [class~="text-zinc-100"] {
-  color: #f7ecd6;
+  color: #f1f5f9;
 }
 .app-shell [class~="text-[#1d1d1f]"] {
   color: var(--ink);
@@ -732,7 +732,7 @@
 }
 .app-shell [class~="hover:text-zinc-800"]:hover,
 .app-shell [class~="hover:text-slate-800"]:hover {
-  color: #6b5030;
+  color: #1e293b;
 }
 .app-shell [class~="hover:text-zinc-700"]:hover,
 .app-shell [class~="hover:text-slate-700"]:hover {
@@ -740,7 +740,7 @@
 }
 .app-shell [class~="hover:text-zinc-600"]:hover,
 .app-shell [class~="hover:text-slate-600"]:hover {
-  color: #87735a;
+  color: #475569;
 }
 .app-shell [class~="hover:text-red-700"]:hover {
   color: #c94444;
@@ -849,11 +849,11 @@
 
 /* ---- 阴影：暖褐色柔和投影 ---- */
 .app-shell [class~="shadow-sm"] { box-shadow: var(--shadow-sm); }
-.app-shell [class~="shadow"] { box-shadow: 0 2px 6px 0 rgb(61 52 40 / 0.1); }
-.app-shell [class~="shadow-md"] { box-shadow: 0 4px 12px 0 rgb(61 52 40 / 0.12); }
+.app-shell [class~="shadow"] { box-shadow: 0 2px 6px 0 rgb(15 23 42 / 0.1); }
+.app-shell [class~="shadow-md"] { box-shadow: 0 4px 12px 0 rgb(15 23 42 / 0.12); }
 .app-shell [class~="shadow-lg"] { box-shadow: var(--shadow-lg); }
-.app-shell [class~="shadow-xl"] { box-shadow: 0 12px 28px 0 rgb(61 52 40 / 0.16); }
-.app-shell [class~="shadow-2xl"] { box-shadow: 0 18px 38px 0 rgb(61 52 40 / 0.2); }
+.app-shell [class~="shadow-xl"] { box-shadow: 0 12px 28px 0 rgb(15 23 42 / 0.16); }
+.app-shell [class~="shadow-2xl"] { box-shadow: 0 18px 38px 0 rgb(15 23 42 / 0.2); }
 .app-shell [class~="hover:shadow-zinc-200/50"]:hover { box-shadow: var(--shadow-base); }
 
 /* 可点击卡片：悬停时轻微上浮 */

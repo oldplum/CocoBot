@@ -5,7 +5,7 @@ export const auth = reactive({
   checked: false,
   setupRequired: false,
   notice: '',
-  cocobotVersion: 'v1.5.1',
+  cocobotVersion: 'v1.5.2',
   frameworkVersion: 'v4.8.1',
 })
 

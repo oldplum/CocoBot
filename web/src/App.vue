@@ -22,11 +22,11 @@
       :class="mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'"
     >
       <div class="px-5 pt-6 pb-5 flex items-center gap-3">
-        <img :src="logoUrl" @error="onLogoError" alt="CocoBot" class="w-10 h-10 rounded-2xl object-cover border-2 border-white shadow-[0_2px_0_0_#d4c9b4]" />
+        <img :src="logoUrl" @error="onLogoError" alt="CocoBot" class="w-10 h-10 rounded-2xl object-cover border-2 border-white shadow-[0_2px_0_0_#cbd5e1]" />
         <div>
-          <div class="text-[15px] font-extrabold leading-tight tracking-[0.02em] text-[#5f4423] flex items-center gap-1.5">
+          <div class="text-[15px] font-extrabold leading-tight tracking-[0.02em] text-[#0f172a] flex items-center gap-1.5">
             <span>COCOBOT</span>
-            <span class="text-[9px] px-1.5 py-0.5 bg-black/5 text-slate-600 rounded font-mono font-normal tracking-normal">{{ auth.cocobotVersion || 'v1.5.1' }}</span>
+            <span class="text-[9px] px-1.5 py-0.5 bg-black/5 text-slate-600 rounded font-mono font-normal tracking-normal">{{ auth.cocobotVersion || 'v1.5.2' }}</span>
           </div>
           <div class="text-[10px] text-slate-500 leading-tight tracking-[0.12em] mt-0.5">CONSOLE · 控制面板</div>
           <div class="text-[9px] text-slate-400 leading-tight tracking-wider mt-0.5">Based on AniaBot {{ auth.frameworkVersion || 'v4.8.1' }}</div>
@@ -255,20 +255,20 @@ async function onChangePwd() {
 /* 侧边栏：奶油小岛面板（浅色渐变 + 暖色描边） */
 .sidebar-island {
   background:
-    radial-gradient(circle, rgb(196 184 158 / 0.22) 1.1px, transparent 1.1px) 0 0 / 20px 20px,
-    linear-gradient(180deg, #fdf8ea 0%, #f8f2e0 46%, #f3ecd8 100%);
-  border-right: 2px solid var(--line-strong);
-  box-shadow: 10px 0 30px -26px rgb(61 52 40 / 0.9);
+    radial-gradient(circle, rgb(148 163 184 / 0.16) 1.1px, transparent 1.1px) 0 0 / 20px 20px,
+    linear-gradient(180deg, #ffffff 0%, #f8fafc 46%, #f1f5f9 100%);
+  border-right: 2px solid var(--line);
+  box-shadow: 10px 0 30px -26px rgb(15 23 42 / 0.12);
 }
 
 /* 顶部工具栏：奶油贴纸条 */
 .topbar-island {
   border-radius: 20px;
-  background: rgb(255 253 247 / 0.92);
+  background: rgb(255 255 255 / 0.92);
   border: 2px solid var(--line);
   box-shadow: var(--shadow-sm);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 /* 当前导航项：CocoBot 主题蓝 pill + 白字 */
