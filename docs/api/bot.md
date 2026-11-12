@@ -76,7 +76,7 @@ func (p *MyPlugin) OnGroupMsg(ctx context.Context, b bot.Bot, cmd command.Comman
 ```go
 type QQ interface {
     // —— 发送 ——
-    // SendGroupAIVoiceMsg 发送群聊 AI 语音（character 为角色 ID，可用 GetAIChatacter 查询）
+    // SendGroupAIVoiceMsg 发送群聊 AI 语音（character 为角色 ID，可用 GetAICharacters 查询）
     SendGroupAIVoiceMsg(groupId message.QID, character, msg string) (msgId message.QID, success bool)
     // SendPokeMsg 戳一戳。groupId 传 nil 表示私聊戳一戳
     SendPokeMsg(userId message.QID, groupId *message.QID) (success bool)
@@ -100,8 +100,8 @@ type QQ interface {
     GetFriendList() (*[]message.Friend, bool)
     // GetGroupList 获取群聊列表
     GetGroupList() (*[]message.GroupInfo, bool)
-    // GetAIChatacter 获取可用的 AI 语音角色列表
-    GetAIChatacter() (*[]message.AIChatacter, bool)
+    // GetAICharacters 获取指定群可用的 AI 语音角色列表（角色按群提供）
+    GetAICharacters(groupId message.QID) (*[]message.AICharacterGroup, bool)
     // GetPrivateFileURL 获取私聊文件的下载地址
     GetPrivateFileURL(userId message.QID, fileId string) (string, bool)
 
@@ -134,6 +134,21 @@ type GroupUserInfo struct {
     IsRobot      bool
 }
 ```
+
+## 媒体地址续期（bot.MediaRefresher，可选接口）
+
+QQ 等平台的图片 / 文件地址带有时效性鉴权参数（如 rkey，约 2 小时过期），过期后直连只会拿到 4xx。平台支持时，事件回调里的 `bot.Bot` 可断言为 `bot.MediaRefresher`，按平台文件 ID 重新申请一个可用地址：
+
+```go
+if mr, ok := b.(bot.MediaRefresher); ok {
+    // kind 取 message.SegmentImage / SegmentRecord / SegmentVideo / SegmentFile
+    if url, ok := mr.RefreshMediaURL(message.SegmentImage, fileId, msg.GroupId.String(), ""); ok {
+        // 用新地址下载 / 展示
+    }
+}
+```
+
+`groupId` / `userId` 用于定位会话（群文件、私聊文件续期需要），没有会话信息时传空串。core 自身也实现该接口：后台路径（没有事件来源）调用时按 `groupId` / `userId` 的 ID 前缀路由到对应适配器；平台不支持时返回 `("", false)`，插件应退化为「链接已失效」提示。
 
 ## 群聊合并转发（bot.GroupForwardSender，可选接口）
 

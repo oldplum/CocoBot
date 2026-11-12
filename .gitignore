@@ -50,12 +50,18 @@ docs/.vitepress/cache/
 web/node_modules/
 bot/adminpanel/dist/
 web/dist-demo/
+# 主题库样式同步产物（npm run sync:theme 生成，来源 animal-island-vue）
+web/src/styles/animal-island.vendor.css
+web/src/styles/files/
 
 # playwright test artifacts
 .playwright-mcp/
 
 # data
 data/
+
+# 内置 skill 运行时物化目录（随二进制发布，启动时自动生成）
+skills/.builtin/
 
 # custom plugin
 # 如果fork仓库保留自己的自定义插件，请把下面项删掉加入git管理

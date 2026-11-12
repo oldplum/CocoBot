@@ -5,8 +5,8 @@ export const auth = reactive({
   checked: false,
   setupRequired: false,
   notice: '',
-  cocobotVersion: 'v1.4.2',
-  frameworkVersion: 'v4.8.0',
+  cocobotVersion: 'v1.5.0',
+  frameworkVersion: 'v4.8.1',
 })
 
 async function request(path, options = {}) {
@@ -35,6 +35,55 @@ function qs(params = {}) {
   }
   const s = q.toString()
   return s ? '?' + s : ''
+}
+
+// 下载接口返回的文件（登录态失效时抛错；文件名优先取 Content-Disposition）
+async function download(path, fallbackName) {  const resp = await fetch(path, { credentials: 'same-origin' })
+  if (resp.status === 401) {
+    auth.loggedIn = false
+    throw new Error('未登录或会话已过期')
+  }
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({}))
+    throw new Error(data.error || `请求失败 (${resp.status})`)
+  }
+  const blob = await resp.blob()
+  let filename = fallbackName
+  const cd = resp.headers.get('Content-Disposition')
+  const m = cd && cd.match(/filename="?([^";]+)"?/)
+  if (m) filename = m[1]
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+// 消息日志媒体的访问地址：
+// - http(s) 走面板代理（/api/msglogs/media），避免 CDN 防盗链 / CORS / 混合内容
+//   问题，并支持附件下载；
+// - ref 为 { entry, index, attempt }：带上日志 ID 与媒体下标后，代理在原地址
+//   失效（QQ 的 rkey 约 2 小时过期）时会先向平台续期再重试；url 为空时直接
+//   向平台申请（用于记录时就没拿到直链的文件）；attempt 用于重试时绕过浏览器
+//   对失败地址的缓存；
+// - data: / blob: 直接交给浏览器。
+export function msgMediaUrl(url, name = '', download = false, ref = null) {
+  const hasRef = !!(ref && ref.entry)
+  if (!url && !hasRef) return ''
+  if (url && /^(?:data|blob):/i.test(url)) return url
+  const q = new URLSearchParams()
+  if (url) q.set('url', url)
+  if (name) q.set('name', name)
+  if (download) q.set('download', '1')
+  if (hasRef) {
+    q.set('entry', String(ref.entry))
+    if (ref.index !== undefined && ref.index !== null) q.set('index', String(ref.index))
+    if (ref.attempt) q.set('t', String(ref.attempt))
+  }
+  return `/api/msglogs/media?${q.toString()}`
 }
 
 export const api = {
@@ -71,30 +120,7 @@ export const api = {
   getSchema: () => request('/api/config/schema'),
   getConfig: () => request('/api/config'),
   // 导出完整配置为 JSON 文件下载（含敏感字段真实值，需妥善保管）
-  async exportConfig() {
-    const resp = await fetch('/api/config/export', { credentials: 'same-origin' })
-    if (resp.status === 401) {
-      auth.loggedIn = false
-      throw new Error('未登录或会话已过期')
-    }
-    if (!resp.ok) {
-      const data = await resp.json().catch(() => ({}))
-      throw new Error(data.error || `请求失败 (${resp.status})`)
-    }
-    const blob = await resp.blob()
-    let filename = 'aniabot-config.json'
-    const cd = resp.headers.get('Content-Disposition')
-    const m = cd && cd.match(/filename="?([^";]+)"?/)
-    if (m) filename = m[1]
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
-  },
+  exportConfig: () => download('/api/config/export', 'aniabot-config.json'),
 
   saveConfig: (updates) =>
     request('/api/config', { method: 'PUT', body: JSON.stringify(updates) }),
@@ -155,12 +181,26 @@ export const api = {
     }
     return map
   },
-  // 消息日志分页查询：{ limit, before }（均可选），返回 { items, has_more }
+  // 消息日志分页查询：{ limit, before, session, after }（均可选），返回 { items, has_more }
   getMsgLogs: (params = {}) => request(`/api/msglogs${qs(params)}`),
+  // 消息日志会话摘要：{ items: [{ key, kind, group_id, user_id, last_text, ... }] }
+  getMsgLogSessions: () => request('/api/msglogs/sessions'),
+  // 删除单条消息日志（面板右键「删除消息」）：只删面板留存记录，不撤回平台原消息
+  deleteMsgLog: (id) => request(`/api/msglogs${qs({ id })}`, { method: 'DELETE' }),
+  // 删除整个会话的消息日志（面板右键会话「删除会话记录」），返回 { ok, session, removed }
+  deleteMsgLogSession: (session) => request(`/api/msglogs${qs({ session })}`, { method: 'DELETE' }),
   // 定时任务执行日志分页查询：{ target_type, target_id, task_id, status, start, end, keyword, limit, before }（均可选）
   getTaskLogs: (params = {}) => request(`/api/tasklogs${qs(params)}`),
+  // 按当前筛选条件导出定时任务执行日志（JSON 文件下载）
+  exportTaskLogs: (params = {}) => download(`/api/tasklogs/export${qs(params)}`, 'tasklogs.json'),
+  // 清除当前筛选条件下的执行日志（无筛选时清空全部），返回 { ok, removed }
+  clearTaskLogs: (params = {}) => request(`/api/tasklogs${qs(params)}`, { method: 'DELETE' }),
   // Query 日志分页查询：{ chat_type, target_id, sender, start, end, keyword, limit, before }（均可选）
   getQueryLogs: (params = {}) => request(`/api/querylogs${qs(params)}`),
+  // 按当前筛选条件导出 Query 日志（JSON 文件下载）
+  exportQueryLogs: (params = {}) => download(`/api/querylogs/export${qs(params)}`, 'querylogs.json'),
+  // 清除当前筛选条件下的 Query 日志（无筛选时清空全部），返回 { ok, removed }
+  clearQueryLogs: (params = {}) => request(`/api/querylogs${qs(params)}`, { method: 'DELETE' }),
   // 控制台日志分页查询：{ limit, before }（均可选），返回 { items, has_more }
   getConsoleLogs: (params = {}) => request(`/api/consolelogs${qs(params)}`),
   // 操作日志分页查询：{ category, start, end, keyword, limit, before }（均可选），返回 { items, has_more }
@@ -207,6 +247,12 @@ export const api = {
   },
   deleteSkill: (name) =>
     request(`/api/skills/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  // 启用/禁用外置 skill（内置 skill 不可禁用）
+  setSkillEnabled: (name, enabled) =>
+    request(`/api/skills/${encodeURIComponent(name)}/toggle`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    }),
 
   getMemoryScopes: () => request('/api/memory/scopes'),
   getMemories: (scope) => request(`/api/memory/list?scope=${encodeURIComponent(scope)}`),

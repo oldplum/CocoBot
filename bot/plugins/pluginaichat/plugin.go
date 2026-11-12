@@ -270,15 +270,11 @@ func (p *AIChatPlugin) OnGroupMsg(ctx context.Context, bot bot.Bot, cmd command.
 			bot.SendGroupMsg(msg.GroupId, builder.Build())
 			return true, nil
 		}
-		// 当前正在响应：消息进入排队队列，响应结束后自动合并处理
-		first, ok := p.enqueuePending(msg.GroupId, true, msg)
-		if !ok {
+		// 当前正在响应：消息静默进入排队队列（不额外提示，避免刷屏），
+		// 响应结束后自动合并处理；只有队列已满导致消息被丢弃时才告知用户
+		if _, ok := p.enqueuePending(msg.GroupId, true, msg); !ok {
 			builder := msgchain.Builder().Group()
 			builder.Text("排队消息太多啦，稍后再试试吧~")
-			bot.SendGroupMsg(msg.GroupId, builder.Build())
-		} else if first {
-			builder := msgchain.Builder().Group()
-			builder.Text("正在回复上一条消息，你的消息已排队，稍后回复你~")
 			bot.SendGroupMsg(msg.GroupId, builder.Build())
 		}
 		p.touchChat(sessionKey(msg.GroupId, true))
@@ -474,15 +470,11 @@ func (p *AIChatPlugin) OnFriendMsg(ctx context.Context, bot bot.Bot, cmd command
 			bot.SendFriendMsg(msg.Sender.UserId, builder.Build())
 			return true, nil
 		}
-		// 当前正在响应：消息进入排队队列，响应结束后自动合并处理
-		first, ok := p.enqueuePending(msg.Sender.UserId, false, msg)
-		if !ok {
+		// 当前正在响应：消息静默进入排队队列（不额外提示，避免刷屏），
+		// 响应结束后自动合并处理；只有队列已满导致消息被丢弃时才告知用户
+		if _, ok := p.enqueuePending(msg.Sender.UserId, false, msg); !ok {
 			builder := msgchain.Builder().Friend()
 			builder.Text("排队消息太多啦，稍后再试试吧~")
-			bot.SendFriendMsg(msg.Sender.UserId, builder.Build())
-		} else if first {
-			builder := msgchain.Builder().Friend()
-			builder.Text("正在回复上一条消息，你的消息已排队，稍后回复你~")
 			bot.SendFriendMsg(msg.Sender.UserId, builder.Build())
 		}
 		p.touchChat(sessionKey(msg.Sender.UserId, false))
@@ -566,9 +558,9 @@ func (p *AIChatPlugin) processChatBatch(ctx context.Context, b bot.Bot, id messa
 	ctx = context.WithValue(ctx, imageRegistryKey{}, imageReg)
 	var msgFuncs llmtool.CallBackFuncs
 	if isGroup {
-		msgFuncs = MakeGroupCallback(b, id, lastMsg.Sender.UserId, batchSelfID(batch), p.Logger, p.cfg.Reply.SplitBlankLine)
+		msgFuncs = MakeGroupCallback(b, id, lastMsg.Sender.UserId, batchSelfID(batch), p.Logger)
 	} else {
-		msgFuncs = MakeFriendCallback(b, id, p.Logger, p.cfg.Reply.SplitBlankLine)
+		msgFuncs = MakeFriendCallback(b, id, p.Logger)
 	}
 	p.configureImageCallbacks(ctx, b, &msgFuncs, imageReg, func(u aichat.TokenUsage) {
 		// 备用图片识别（OCR）消耗：并入会话统计（finishQuery 取走）与配额
@@ -609,8 +601,9 @@ func (p *AIChatPlugin) processChatBatch(ctx context.Context, b bot.Bot, id messa
 	// 全程只维持一条消息：工具轮的中间文本先展示，随后被下一轮文本整体覆盖
 	//（见 streamreply.go），最终留下的就是最后一轮的最终回复；群聊首条消息
 	// 携带本批全部发言者的 @ 提及（与一次性路径的提及集一致）。
-	// 「按空行拆分回复」只作用于非流式发送：流式是单条消息逐字更新，本身无法
-	// 拆成多条，故流式生效时拆分不参与（两个开关可同时开启，互不冲突）。
+	// 回复拆分只作用于非流式发送：||| 分隔符在流式展示中转为换行（见
+	// streamDisplayText）——流式是单条消息逐字更新，本身无法拆成多条，
+	// 故流式生效时不做拆分。
 	stream := p.newStreamReplyFor(b, id, isGroup, batch)
 	if stream != nil {
 		chatOpts.OnStreamDelta = stream.OnDelta
@@ -746,9 +739,9 @@ func (p *AIChatPlugin) processChatBatch(ctx context.Context, b bot.Bot, id messa
 	}
 
 	// 最终回复片段（流式未生效时才会走到这里，如平台不支持流式或流式已退化）：
-	// 默认整段一条消息；开启按空行拆分时拆成多条逐条发送，片段过多
+	// AI 用 ||| 指定了消息边界时拆成多条逐条发送，否则整段一条；片段过多
 	//（> forwardSegThreshold）时平台支持合并转发（QQ）则改为一条合并转发，避免刷屏。
-	segments := replySegments(resp, p.cfg.Reply.SplitBlankLine)
+	segments := replySegments(resp)
 	if isGroup {
 		// 群聊中 @ 本批所有发言者（去重），让排队消息的每个人都收到回应；
 		// 拆分发送时仅首条携带 @ 提及（合并转发为首节点），避免每条回复都提醒
@@ -820,20 +813,7 @@ func (p *AIChatPlugin) buildAdminPromptSender(b bot.Bot) func(text string) bool 
 }
 
 func (p *AIChatPlugin) buildChatOptions() aichat.ChatOptions {
-	opts := p.thinkingOpts()
-	if p.cfg.MaxToken != nil {
-		opts.MaxToken = p.cfg.MaxToken
-	}
-	if p.cfg.Temperature != nil {
-		opts.Temperature = p.cfg.Temperature
-	}
-	if p.cfg.TopP != nil {
-		opts.TopP = p.cfg.TopP
-	}
-	if p.cfg.TopK != nil {
-		opts.TopK = p.cfg.TopK
-	}
-	return opts
+	return p.thinkingOpts()
 }
 
 func (p *AIChatPlugin) buildOCRChatOptions() aichat.ChatOptions {
@@ -913,7 +893,7 @@ func (p *AIChatPlugin) Start(ctx context.Context, cfg *viper.Viper) error {
 	}
 
 	if p.cfg.Search.Token == "" {
-		p.Logger.Warn("Jina AI Token 未设置，将无法使用网页浏览和搜索功能")
+		p.Logger.Warn("Jina AI Token 未设置，知识库「导入 URL」功能将不可用")
 	}
 
 	if p.cfg.Multimodal {
@@ -1016,7 +996,6 @@ func (p *AIChatPlugin) Start(ctx context.Context, cfg *viper.Viper) error {
 	}
 	var err error
 	p.toolExecutor, p.skillManager, err = functool.CreateToolsWithSkill(
-		p.cfg.Search.Token,
 		p.mcpConfigs,
 		skillsDir,
 		bashConfig,
@@ -1028,6 +1007,11 @@ func (p *AIChatPlugin) Start(ctx context.Context, cfg *viper.Viper) error {
 	)
 	if err != nil {
 		return fmt.Errorf("%w: 创建工具执行器失败: %w", aniaerror.ParameterInitializeError, err)
+	}
+	// 应用技能禁用列表（内置技能不可禁用，管理器会忽略对应项）
+	p.skillManager.SetDisabled(p.cfg.SkillsDisabled)
+	if disabled := p.skillManager.DisabledNames(); len(disabled) > 0 {
+		p.Logger.Info("已禁用部分 skill（描述不进入上下文）", "skills", strings.Join(disabled, ", "))
 	}
 
 	// 配置管理工具（默认关闭，配置中心读写能力由 core 经 DI 注入）
@@ -1069,11 +1053,7 @@ func (p *AIChatPlugin) Start(ctx context.Context, cfg *viper.Viper) error {
 		if defaultTimeoutSec > clockMaxTimeoutSec {
 			defaultTimeoutSec = clockMaxTimeoutSec
 		}
-		maxLog := p.cfg.Clock.MaxLogEntries
-		if maxLog <= 0 {
-			maxLog = 20000
-		}
-		p.clockManager = newClockManager(p, time.Duration(defaultTimeoutSec)*time.Second, maxLog)
+		p.clockManager = newClockManager(p, time.Duration(defaultTimeoutSec)*time.Second)
 		p.Logger.Info("已启用AI定时任务功能", "tasks", len(p.clockManager.List()), "default_timeout_sec", defaultTimeoutSec)
 	} else {
 		p.Logger.Info("AI定时任务功能未启用（plugin.ai_chat_bot.clock.enable=false）")

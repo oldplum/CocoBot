@@ -102,11 +102,11 @@ type clockManager struct {
 	bot         bot.Bot
 }
 
-func newClockManager(p *AIChatPlugin, defaultTimeout time.Duration, maxLog int) *clockManager {
+func newClockManager(p *AIChatPlugin, defaultTimeout time.Duration) *clockManager {
 	m := &clockManager{
 		plugin:         p,
 		store:          p.PersistentStorage.Clone("clock:"),
-		log:            tasklog.New(p.PersistentStorage, maxLog, p.Logger.WithGroup("tasklog")),
+		log:            tasklog.New(p.PersistentStorage, p.Logger.WithGroup("tasklog")),
 		logger:         p.Logger.WithGroup("clock"),
 		defaultTimeout: defaultTimeout,
 		tasks:          map[string]*ClockTask{},
@@ -131,6 +131,23 @@ func (p *AIChatPlugin) TaskLogQuery(f tasklog.Filter) []tasklog.Entry {
 		return nil
 	}
 	return p.clockManager.log.Query(f)
+}
+
+// TaskLogStats 返回执行日志的轻量统计行（全量留存记录），
+// 实现 adminpanel.TaskLogSource，供 Token 统计聚合。
+func (p *AIChatPlugin) TaskLogStats(f tasklog.Filter) []tasklog.StatRow {
+	if p.clockManager == nil {
+		return nil
+	}
+	return p.clockManager.log.Stats(f)
+}
+
+// TaskLogClear 清除满足条件的执行日志（零值条件清除全部），实现 adminpanel.TaskLogSource。
+func (p *AIChatPlugin) TaskLogClear(f tasklog.Filter) int {
+	if p.clockManager == nil {
+		return 0
+	}
+	return p.clockManager.log.Clear(f)
 }
 
 // taskInfos 返回所有任务的面板展示信息（供 Web 控制面板）。
@@ -943,15 +960,14 @@ func (m *clockManager) sendText(task *ClockTask, text string) bool {
 	return true
 }
 
-// sendTextRaw 实际发送逻辑。按空行拆分开关开启时拆成多条逐条发送
+// sendTextRaw 实际发送逻辑。文本中的 ||| 分隔符拆成多条逐条发送
 // （群聊仅首条携带 @ 提醒），与主对话回复的拆分语义保持一致；群聊片段过多
 // 且平台支持合并转发（QQ）时改为一条合并转发消息，避免刷屏。
 func (m *clockManager) sendTextRaw(task *ClockTask, text string) bool {
 	if m.bot == nil {
 		return false
 	}
-	split := m.plugin != nil && m.plugin.cfg.Reply.SplitBlankLine
-	segments := replySegments(text, split)
+	segments := replySegments(text)
 	targetQID := parseQID(task.TargetID)
 	if task.TargetType == clockTargetGroup {
 		var mentions []message.QID

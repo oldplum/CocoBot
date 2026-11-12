@@ -14,13 +14,20 @@
 package adminpanel
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
+	"mime"
+	"net"
 	"net/http"
+	"net/url"
+	"path"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -70,9 +77,13 @@ type ContactSource struct {
 }
 
 // TaskLogSource 可选接口：插件实现后，面板「任务日志」页可按条件查询其定时任务
-// 执行日志（当前由 AI 对话插件的 clock 功能实现）。
+// 执行日志，并支持导出与清除（当前由 AI 对话插件的 clock 功能实现）。
 type TaskLogSource interface {
 	TaskLogQuery(f tasklog.Filter) []tasklog.Entry
+	// TaskLogStats 返回轻量统计行（全量留存记录），供 Token 统计聚合
+	TaskLogStats(f tasklog.Filter) []tasklog.StatRow
+	// TaskLogClear 清除满足条件的执行日志（零值条件清除全部），返回删除条数
+	TaskLogClear(f tasklog.Filter) int
 }
 
 // ClockTaskSource 可选接口：插件实现后，面板可对其定时任务做增删改查与启停
@@ -85,21 +96,67 @@ type ClockTaskSource interface {
 }
 
 // MsgLogSource 可选接口：插件实现后，面板「消息日志」页可展示其记录的
-// 群消息 / 好友消息 / 通知事件（当前由日志打印插件实现，内存环形缓冲）。
+// 群消息 / 好友消息 / 通知事件（当前由日志打印插件实现）。
 // beforeID>0 时仅返回 ID 小于它的更旧日志（滚动分页游标）。
 type MsgLogSource interface {
 	MsgLogPage(limit int, beforeID uint64) []msglog.Entry
 }
 
+// MsgLogSessionSource 可选接口：在 MsgLogSource 之外提供聊天式面板所需的
+// 「按会话」能力（当前由日志打印插件实现）。
+// 未实现时面板退化为单一流水视图，原有分页功能不受影响。
+type MsgLogSessionSource interface {
+	// MsgLogSessions 返回会话摘要列表（按最近活动倒序）
+	MsgLogSessions() []msglog.Session
+	// MsgLogSessionPage 返回指定会话的一页日志（新在前）：
+	// beforeID>0 仅返回更旧日志；afterID>0 仅返回更新的日志（轮询增量）
+	MsgLogSessionPage(session string, limit int, beforeID, afterID uint64) []msglog.Entry
+}
+
+// MsgLogMediaSource 可选接口：为消息日志里的过期媒体地址续期。
+// QQ 等平台的图片 / 文件地址带 rkey 等时效性鉴权参数，过期后浏览器访问
+// 只会拿到 4xx；面板媒体代理在转发失败时调用本接口向平台重新申请地址。
+// 未实现时媒体加载失败直接报错（与旧版行为一致）。
+type MsgLogMediaSource interface {
+	// MsgLogMediaURL 重新解析 entryID 对应日志里第 index 个媒体的可访问地址
+	// （index 为 Entry.Media 下标）。取不到可用地址时返回 false。
+	MsgLogMediaURL(entryID uint64, index int) (string, bool)
+}
+
+// MsgLogDeleteSource 可选接口：面板可删除消息日志（「消息日志」页右键删除）。
+// 删除只影响面板留存的记录，不会撤回平台上的原消息。
+// 未实现时面板的删除入口不可用（接口返回 404）。
+type MsgLogDeleteSource interface {
+	// MsgLogDelete 删除一条日志，返回是否实际删除
+	// （日志不存在 / 已被容量淘汰 / 已删除时返回 false）。
+	MsgLogDelete(id uint64) bool
+}
+
+// MsgLogSessionDeleteSource 可选接口：面板可删除某个会话（群聊 / 私聊 / 系统
+// 通知）的全部日志记录（「消息日志」页右键会话「删除会话记录」）。
+// 未实现时该入口不可用（接口返回 404）。
+type MsgLogSessionDeleteSource interface {
+	// MsgLogDeleteSession 删除会话 session 的全部日志，返回删除条数
+	// （会话不存在或已无记录时返回 0）。
+	MsgLogDeleteSession(session string) int
+}
+
 // SkillSource 可选接口：插件实现后，面板可对其 AI skill 做列表 / 上传 / 删除
 // （当前由 AI 对话插件实现）。上传/删除后插件负责热重载 skill 注册表。
+// 内置 skill 由插件侧拒绝删除，面板按 SkillInfo.Builtin 隐藏删除入口。
 type SkillSource interface {
-	// SkillList 返回当前已加载的 skill 列表、skills 目录与白名单（空表示加载全部）
+	// SkillList 返回当前 skill 列表（含内置与已禁用）、skills 目录与白名单（空表示加载全部）
 	SkillList() (skills []plugininfo.SkillInfo, dir string, whitelist []string)
-	// SkillDelete 按名称删除 skill（同时从磁盘移除）并热重载
+	// SkillDelete 按名称删除 skill（同时从磁盘移除）并热重载；内置 skill 不可删除
 	SkillDelete(name string) error
 	// SkillUpload 从 zip 压缩包内容安装 skill 并热重载，filename 为原始文件名
 	SkillUpload(filename string, data []byte) error
+}
+
+// SkillToggleSource 可选接口：启用/禁用外置 skill（内置 skill 不可禁用）。
+// 禁用后 skill 描述不进入上下文、不可被 skill_read 读取；改动即时生效并持久化。
+type SkillToggleSource interface {
+	SkillSetEnabled(name string, enabled bool) error
 }
 
 // SkillDetailSource 可选接口：在 SkillSource 之外提供 SKILL 详情查看能力。
@@ -150,9 +207,14 @@ type TeamSource interface {
 }
 
 // QueryLogSource 可选接口：插件实现后，面板「Query 日志」页可展示每次 AI 回复
-// 的完整执行记录（耗时、token 用量、工具调用详情）（当前由 AI 对话插件实现）。
+// 的完整执行记录（耗时、token 用量、工具调用详情），并支持导出与清除
+// （当前由 AI 对话插件实现）。
 type QueryLogSource interface {
 	QueryLogRecent(f querylog.Filter) []querylog.Entry
+	// QueryLogStats 返回轻量统计行（全量留存记录），供 Token 统计聚合
+	QueryLogStats(f querylog.Filter) []querylog.StatRow
+	// QueryLogClear 清除满足条件的 Query 日志（零值条件清除全部），返回删除条数
+	QueryLogClear(f querylog.Filter) int
 }
 
 // KnowledgeBaseSource 可选接口：插件实现后，面板「知识库」页可对其知识库文档
@@ -174,27 +236,36 @@ type KnowledgeBaseSource interface {
 
 // Options 面板依赖。
 type Options struct {
-	Listen          string                                             // 监听地址，如 127.0.0.1:7700
-	Config          *configstore.Store                                 // 配置中心
-	Persistent      storage.PersistentStorage                          // 根持久化存储（__admin 命名空间存密码哈希）
-	Bot             BotInfo                                            // 运行信息来源
-	Contacts        []ContactSource                                    // 各平台通讯录（群/好友列表）能力来源，可为空
-	Adapter         func() string                                      // 适配器连接状态描述
-	AdapterDetail   func() string                                      // 适配器状态详情（最近错误/重试次数，可为 nil）
-	AdapterStatuses func() []AdapterStatus                             // 各平台适配器状态列表（可为 nil）
-	TaskLogs        func(f tasklog.Filter) []tasklog.Entry             // AI 定时任务执行日志（可为 nil）
-	Clocks          ClockTaskSource                                    // AI 定时任务列表与启停（可为 nil）
-	MsgLogs         func(limit int, beforeID uint64) []msglog.Entry    // 消息日志（群/好友/通知，可为 nil）
-	Skills          SkillSource                                        // AI skill 管理（可为 nil）
-	Memories        MemorySource                                       // AI 长期记忆管理（可为 nil）
-	Knowledge       KnowledgeBaseSource                                // AI 知识库管理（可为 nil）
-	Teams           TeamSource                                         // Agent 团队管理（可为 nil）
-	Quota           QuotaSource                                        // 每日 Token 配额管理（可为 nil）
-	Marketplace     *marketplace.Service                               // 插件市场服务（可为 nil）
-	QueryLogs       func(f querylog.Filter) []querylog.Entry           // AI Query 日志（可为 nil）
-	ConsoleLogs     func(limit int, beforeID uint64) []consollog.Entry // 控制台日志（slog + log 输出，可为 nil）
-	QRLogins        []QRLoginChannel                                   // 支持扫码登录的平台适配器（如微信；可为 nil）
-	Logger          *slog.Logger
+	Listen              string                                                                   // 监听地址，如 127.0.0.1:7700
+	Config              *configstore.Store                                                       // 配置中心
+	Persistent          storage.PersistentStorage                                                // 根持久化存储（__admin 命名空间存密码哈希）
+	Bot                 BotInfo                                                                  // 运行信息来源
+	Contacts            []ContactSource                                                          // 各平台通讯录（群/好友列表）能力来源，可为空
+	Adapter             func() string                                                            // 适配器连接状态描述
+	AdapterDetail       func() string                                                            // 适配器状态详情（最近错误/重试次数，可为 nil）
+	AdapterStatuses     func() []AdapterStatus                                                   // 各平台适配器状态列表（可为 nil）
+	TaskLogs            func(f tasklog.Filter) []tasklog.Entry                                   // AI 定时任务执行日志（可为 nil）
+	TaskLogsStats       func(f tasklog.Filter) []tasklog.StatRow                                 // 定时任务日志的轻量统计行（可为 nil）
+	TaskLogsClear       func(f tasklog.Filter) int                                               // 清除定时任务执行日志（可为 nil）
+	Clocks              ClockTaskSource                                                          // AI 定时任务列表与启停（可为 nil）
+	MsgLogs             func(limit int, beforeID uint64) []msglog.Entry                          // 消息日志（群/好友/通知，可为 nil）
+	MsgLogSessions      func() []msglog.Session                                                  // 消息日志的会话摘要（可为 nil）
+	MsgLogSessionPage   func(session string, limit int, beforeID, afterID uint64) []msglog.Entry // 按会话分页（可为 nil）
+	MsgLogMedia         func(entryID uint64, index int) (string, bool)                           // 媒体地址续期（可为 nil）
+	MsgLogDelete        func(id uint64) bool                                                     // 删除单条消息日志（可为 nil）
+	MsgLogDeleteSession func(session string) int                                                 // 删除整个会话的消息日志（可为 nil）
+	Skills              SkillSource                                                              // AI skill 管理（可为 nil）
+	Memories            MemorySource                                                             // AI 长期记忆管理（可为 nil）
+	Knowledge           KnowledgeBaseSource                                                      // AI 知识库管理（可为 nil）
+	Teams               TeamSource                                                               // Agent 团队管理（可为 nil）
+	Quota               QuotaSource                                                              // 每日 Token 配额管理（可为 nil）
+	Marketplace         *marketplace.Service                                                     // 插件市场服务（可为 nil）
+	QueryLogs           func(f querylog.Filter) []querylog.Entry                                 // AI Query 日志（可为 nil）
+	QueryLogsStats      func(f querylog.Filter) []querylog.StatRow                               // Query 日志的轻量统计行（可为 nil）
+	QueryLogsClear      func(f querylog.Filter) int                                              // 清除 AI Query 日志（可为 nil）
+	ConsoleLogs         func(limit int, beforeID uint64) []consollog.Entry                       // 控制台日志（slog + log 输出，可为 nil）
+	QRLogins            []QRLoginChannel                                                         // 支持扫码登录的平台适配器（如微信；可为 nil）
+	Logger              *slog.Logger
 }
 
 // Server 面板 HTTP 服务。
@@ -204,6 +275,9 @@ type Server struct {
 	mux     *http.ServeMux
 	started time.Time
 	balance balanceCache
+	// mediaHTTP 媒体代理使用的 HTTP 客户端；为空时用默认的 msgLogMediaClient
+	// （仅测试注入，面板运行时不设置）。
+	mediaHTTP *http.Client
 }
 
 // NewServer 创建面板服务。Options.Listen 为空时默认 127.0.0.1:7700。
@@ -256,8 +330,15 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /api/contact/sources", s.requireAuth(http.HandlerFunc(s.handleContactSources)))
 	s.mux.Handle("GET /api/contacts", s.requireAuth(http.HandlerFunc(s.handleContacts)))
 	s.mux.Handle("GET /api/tasklogs", s.requireAuth(http.HandlerFunc(s.handleTaskLogs)))
+	s.mux.Handle("GET /api/tasklogs/export", s.requireAuth(http.HandlerFunc(s.handleTaskLogsExport)))
+	s.mux.Handle("DELETE /api/tasklogs", s.requireAuth(http.HandlerFunc(s.handleTaskLogsClear)))
 	s.mux.Handle("GET /api/msglogs", s.requireAuth(http.HandlerFunc(s.handleMsgLogs)))
+	s.mux.Handle("DELETE /api/msglogs", s.requireAuth(http.HandlerFunc(s.handleMsgLogDelete)))
+	s.mux.Handle("GET /api/msglogs/sessions", s.requireAuth(http.HandlerFunc(s.handleMsgLogSessions)))
+	s.mux.Handle("GET /api/msglogs/media", s.requireAuth(http.HandlerFunc(s.handleMsgLogMedia)))
 	s.mux.Handle("GET /api/querylogs", s.requireAuth(http.HandlerFunc(s.handleQueryLogs)))
+	s.mux.Handle("GET /api/querylogs/export", s.requireAuth(http.HandlerFunc(s.handleQueryLogsExport)))
+	s.mux.Handle("DELETE /api/querylogs", s.requireAuth(http.HandlerFunc(s.handleQueryLogsClear)))
 	s.mux.Handle("GET /api/consolelogs", s.requireAuth(http.HandlerFunc(s.handleConsoleLogs)))
 	s.mux.Handle("GET /api/oplogs", s.requireAuth(http.HandlerFunc(s.handleOpLogs)))
 	s.mux.Handle("GET /api/tokenstats", s.requireAuth(http.HandlerFunc(s.handleTokenStats)))
@@ -271,6 +352,7 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /api/skills", s.requireAuth(http.HandlerFunc(s.handleSkillUpload)))
 	s.mux.Handle("GET /api/skills/{name}", s.requireAuth(http.HandlerFunc(s.handleSkillDetail)))
 	s.mux.Handle("DELETE /api/skills/{name}", s.requireAuth(http.HandlerFunc(s.handleSkillDelete)))
+	s.mux.Handle("POST /api/skills/{name}/toggle", s.requireAuth(http.HandlerFunc(s.handleSkillToggle)))
 	s.mux.Handle("GET /api/memory/scopes", s.requireAuth(http.HandlerFunc(s.handleMemoryScopes)))
 	s.mux.Handle("GET /api/memory/list", s.requireAuth(http.HandlerFunc(s.handleMemoryList)))
 	s.mux.Handle("POST /api/memory", s.requireAuth(http.HandlerFunc(s.handleMemoryCreate)))
@@ -742,6 +824,48 @@ func (s *Server) handleContacts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, groups)
 }
 
+// parseTaskLogFilter 解析定时任务执行日志的过滤条件（不含分页参数）。
+// 返回错误说明文本（非空表示参数非法）。
+func parseTaskLogFilter(r *http.Request) (tasklog.Filter, string) {
+	q := r.URL.Query()
+	f := tasklog.Filter{
+		TargetType: q.Get("target_type"),
+		TargetID:   q.Get("target_id"),
+		TaskID:     q.Get("task_id"),
+		Status:     tasklog.Status(q.Get("status")),
+		Keyword:    q.Get("keyword"),
+	}
+	if f.TargetType != "" && f.TargetType != "group" && f.TargetType != "friend" {
+		return f, "target_type 仅支持 group / friend"
+	}
+	switch f.Status {
+	case "", tasklog.StatusRunning, tasklog.StatusSuccess, tasklog.StatusTimeout, tasklog.StatusError, tasklog.StatusInterrupted:
+	default:
+		return f, "status 仅支持 running / success / timeout / error / interrupted"
+	}
+	if v := q.Get("start"); v != "" {
+		t, err := parseQueryTime(v)
+		if err != nil {
+			return f, "start 时间格式错误（支持 RFC3339 或 2006-01-02T15:04）"
+		}
+		f.Start = t
+	}
+	if v := q.Get("end"); v != "" {
+		t, err := parseQueryTime(v)
+		if err != nil {
+			return f, "end 时间格式错误（支持 RFC3339 或 2006-01-02T15:04）"
+		}
+		f.End = t
+	}
+	if v := q.Get("before"); v != "" {
+		if _, err := strconv.ParseUint(v, 36, 64); err != nil {
+			return f, "before 游标格式错误（应为日志 ID）"
+		}
+		f.Before = v
+	}
+	return f, ""
+}
+
 // handleTaskLogs 按条件分页查询定时任务执行日志（新在前）。
 // 支持查询参数：target_type（group/friend）、target_id（群号/QQ）、task_id（任务 ID）、
 // status（running/success/timeout/error/interrupted）、start / end（RFC3339 或 datetime-local 格式）、
@@ -753,48 +877,12 @@ func (s *Server) handleTaskLogs(w http.ResponseWriter, r *http.Request) {
 		writePagedLogs(w, nil, false)
 		return
 	}
-	q := r.URL.Query()
-	f := tasklog.Filter{
-		TargetType: q.Get("target_type"),
-		TargetID:   q.Get("target_id"),
-		TaskID:     q.Get("task_id"),
-		Status:     tasklog.Status(q.Get("status")),
-		Keyword:    q.Get("keyword"),
-	}
-	if f.TargetType != "" && f.TargetType != "group" && f.TargetType != "friend" {
-		writeError(w, http.StatusBadRequest, "target_type 仅支持 group / friend")
+	f, msg := parseTaskLogFilter(r)
+	if msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
-	switch f.Status {
-	case "", tasklog.StatusRunning, tasklog.StatusSuccess, tasklog.StatusTimeout, tasklog.StatusError, tasklog.StatusInterrupted:
-	default:
-		writeError(w, http.StatusBadRequest, "status 仅支持 running / success / timeout / error / interrupted")
-		return
-	}
-	if v := q.Get("start"); v != "" {
-		t, err := parseQueryTime(v)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "start 时间格式错误（支持 RFC3339 或 2006-01-02T15:04）")
-			return
-		}
-		f.Start = t
-	}
-	if v := q.Get("end"); v != "" {
-		t, err := parseQueryTime(v)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "end 时间格式错误（支持 RFC3339 或 2006-01-02T15:04）")
-			return
-		}
-		f.End = t
-	}
-	if v := q.Get("before"); v != "" {
-		if _, err := strconv.ParseUint(v, 36, 64); err != nil {
-			writeError(w, http.StatusBadRequest, "before 游标格式错误（应为日志 ID）")
-			return
-		}
-		f.Before = v
-	}
-	limit := parsePageLimit(q.Get("limit"))
+	limit := parsePageLimit(r.URL.Query().Get("limit"))
 	// 多取一条判断是否还有下一页
 	f.Limit = limit + 1
 	items := s.opt.TaskLogs(f)
@@ -805,25 +893,89 @@ func (s *Server) handleTaskLogs(w http.ResponseWriter, r *http.Request) {
 	writePagedLogs(w, items, hasMore)
 }
 
+// handleTaskLogsExport 按当前筛选条件导出全部定时任务执行日志（JSON 文件下载）。
+func (s *Server) handleTaskLogsExport(w http.ResponseWriter, r *http.Request) {
+	if s.opt.TaskLogs == nil {
+		writeError(w, http.StatusNotFound, "定时任务日志功能未启用")
+		return
+	}
+	f, msg := parseTaskLogFilter(r)
+	if msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	// 导出不分页，保留全部命中记录
+	f.Before, f.Limit = "", 0
+	items := s.opt.TaskLogs(f)
+	if items == nil {
+		items = []tasklog.Entry{}
+	}
+	oplog.Record(oplog.CategorySystem, "task_log_export", fmt.Sprintf("面板导出定时任务执行日志 %d 条", len(items)))
+	writeDownloadJSON(w, "tasklogs-"+time.Now().Format("20060102-150405")+".json", map[string]any{
+		"exported_at": time.Now().Format(time.RFC3339),
+		"total":       len(items),
+		"items":       items,
+	})
+}
+
+// handleTaskLogsClear 清除当前筛选条件下的定时任务执行日志（无筛选时清空全部）。
+func (s *Server) handleTaskLogsClear(w http.ResponseWriter, r *http.Request) {
+	if s.opt.TaskLogsClear == nil {
+		writeError(w, http.StatusNotFound, "定时任务日志功能未启用")
+		return
+	}
+	f, msg := parseTaskLogFilter(r)
+	if msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	f.Before, f.Limit = "", 0
+	n := s.opt.TaskLogsClear(f)
+	s.opt.Logger.Info("定时任务执行日志已通过 Web 面板清除", "removed", n)
+	oplog.Record(oplog.CategorySystem, "task_log_clear", fmt.Sprintf("面板清除定时任务执行日志 %d 条", n))
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "removed": n})
+}
+
 // handleMsgLogs 分页返回消息日志（群/好友/通知，新在前）。
-// 支持查询参数：limit（每页条数，默认 50，最大 200）、
-// before（分页游标：仅返回 ID 小于它的更旧日志）。
+// 支持的查询参数：
+//   - limit：每页条数（默认 50，最大 200）
+//   - before：分页游标，仅返回 ID 小于它的更旧日志
+//   - session：会话键（g:/f:/n:system），仅返回该会话的日志
+//   - after：增量游标，仅返回 ID 大于它的新日志（会话视图轮询用）
+//
 // 响应：{"items": [...], "has_more": bool}。
 func (s *Server) handleMsgLogs(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	limit := parsePageLimit(q.Get("limit"))
+	before, errMsg := parseLogID(q.Get("before"), "before")
+	if errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+
+	// 会话视图：走按会话分页（侧栏选中某个群聊 / 私聊）
+	if session := strings.TrimSpace(q.Get("session")); session != "" {
+		if s.opt.MsgLogSessionPage == nil {
+			writeError(w, http.StatusNotFound, "按会话查看消息日志未启用")
+			return
+		}
+		after, errMsg := parseLogID(q.Get("after"), "after")
+		if errMsg != "" {
+			writeError(w, http.StatusBadRequest, errMsg)
+			return
+		}
+		items := s.opt.MsgLogSessionPage(session, limit+1, before, after)
+		hasMore := len(items) > limit
+		if hasMore {
+			items = items[:limit]
+		}
+		writePagedLogs(w, items, hasMore)
+		return
+	}
+
 	if s.opt.MsgLogs == nil {
 		writePagedLogs(w, nil, false)
 		return
-	}
-	q := r.URL.Query()
-	limit := parsePageLimit(q.Get("limit"))
-	var before uint64
-	if v := q.Get("before"); v != "" {
-		n, err := strconv.ParseUint(v, 10, 64)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "before 游标格式错误（应为数字日志 ID）")
-			return
-		}
-		before = n
 	}
 	items := s.opt.MsgLogs(limit+1, before)
 	hasMore := len(items) > limit
@@ -831,6 +983,366 @@ func (s *Server) handleMsgLogs(w http.ResponseWriter, r *http.Request) {
 		items = items[:limit]
 	}
 	writePagedLogs(w, items, hasMore)
+}
+
+// handleMsgLogSessions 返回消息日志的会话摘要列表（面板左侧会话列表）。
+// 响应：{"items": [{key, kind, last_text, last_time, ...}]}。
+func (s *Server) handleMsgLogSessions(w http.ResponseWriter, r *http.Request) {
+	if s.opt.MsgLogSessions == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"items": []msglog.Session{}})
+		return
+	}
+	items := s.opt.MsgLogSessions()
+	if items == nil {
+		items = []msglog.Session{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+// handleMsgLogDelete 删除消息日志（面板「消息日志」页右键删除）。
+// 查询参数二选一：
+//   - session=g:qq:1 / f:qq:2 / n:system：删除整个会话的日志，
+//     响应 {"ok": true, "session": "...", "removed": N}
+//   - id=123：删除单条日志，响应 {"ok": true, "id": 123}
+//
+// 只删面板留存的记录，不撤回平台原消息。
+func (s *Server) handleMsgLogDelete(w http.ResponseWriter, r *http.Request) {
+	if session := strings.TrimSpace(r.URL.Query().Get("session")); session != "" {
+		s.handleMsgLogSessionDelete(w, session)
+		return
+	}
+	if s.opt.MsgLogDelete == nil {
+		writeError(w, http.StatusNotFound, "删除消息日志未启用")
+		return
+	}
+	id, errMsg := parseLogID(r.URL.Query().Get("id"), "id")
+	if errMsg != "" {
+		writeError(w, http.StatusBadRequest, errMsg)
+		return
+	}
+	if id == 0 {
+		writeError(w, http.StatusBadRequest, "缺少要删除的消息日志 ID")
+		return
+	}
+	if !s.opt.MsgLogDelete(id) {
+		writeError(w, http.StatusNotFound, "该消息记录已不存在")
+		return
+	}
+	s.opt.Logger.Info("消息日志已通过 Web 面板删除", "id", id)
+	oplog.Record(oplog.CategorySystem, "msg_log_delete", fmt.Sprintf("面板删除消息日志 #%d", id))
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id})
+}
+
+// maxMsgLogSessionKeyLen 会话键的长度上限（g:/f: + 平台 ID，n:system），
+// 挡住明显异常的入参。
+const maxMsgLogSessionKeyLen = 128
+
+// handleMsgLogSessionDelete 删除一个会话的全部消息日志。
+func (s *Server) handleMsgLogSessionDelete(w http.ResponseWriter, session string) {
+	if s.opt.MsgLogDeleteSession == nil {
+		writeError(w, http.StatusNotFound, "删除消息日志未启用")
+		return
+	}
+	if len(session) > maxMsgLogSessionKeyLen {
+		writeError(w, http.StatusBadRequest, "会话 ID 过长")
+		return
+	}
+	removed := s.opt.MsgLogDeleteSession(session)
+	if removed <= 0 {
+		writeError(w, http.StatusNotFound, "该会话没有可删除的消息记录")
+		return
+	}
+	s.opt.Logger.Info("消息会话日志已通过 Web 面板删除", "session", session, "removed", removed)
+	oplog.Record(oplog.CategorySystem, "msg_log_session_delete",
+		fmt.Sprintf("面板删除消息会话 %s 的 %d 条记录", session, removed))
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "session": session, "removed": removed})
+}
+
+// maxMsgLogMediaBytes 面板媒体代理允许的最大响应体积（64MB）。
+const maxMsgLogMediaBytes = 64 << 20
+
+// msgLogMediaClient 抓取平台媒体地址的 HTTP 客户端：限制总超时与跳转次数，
+// 并在每次跳转时重新校验目标主机（避免借跳转绕过内网限制）。
+var msgLogMediaClient = &http.Client{
+	Timeout: 30 * time.Second,
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 5 {
+			return errors.New("跳转次数过多")
+		}
+		if !msgLogMediaHostAllowed(req.URL.Hostname()) {
+			return errors.New("媒体地址指向内网")
+		}
+		return nil
+	},
+}
+
+// handleMsgLogMedia 代理平台媒体地址（QQ/微信等 CDN 的图片与文件），
+// 解决浏览器直连时的防盗链 / CORS / 混合内容问题，并提供附件下载：
+//   - url      可选，http(s) 地址；为空时要求同时给出 entry+index（直接向平台申请）
+//   - entry    可选，消息日志 ID（媒体地址过期时用于重新申请）
+//   - index    可选，媒体在日志中的下标（默认 0）
+//   - name     可选，下载时的文件名
+//   - download 为 1 时以附件形式返回（Content-Disposition: attachment）
+//
+// 平台媒体地址（QQ 的 rkey 等）会过期：旧地址转发失败且给了 entry+index 时，
+// 先通过 MsgLogMediaSource 续期再重试一次，面板回看历史消息仍能看到图片。
+//
+// 面板是管理员专用页面，此接口仍只允许 http(s)，并拒绝直连本机 / 私网 IP，
+// 避免被当成内网探测代理。
+func (s *Server) handleMsgLogMedia(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	entryID, index, hasRef, refErr := parseMsgLogMediaRef(q)
+	if refErr != "" {
+		writeError(w, http.StatusBadRequest, refErr)
+		return
+	}
+
+	rawURL := strings.TrimSpace(q.Get("url"))
+	u, status, errMsg := parseMsgLogMediaURL(rawURL)
+	// 记录时就没拿到直链（或前端只给了日志引用）：直接向平台申请一次
+	if u == nil && hasRef && rawURL == "" {
+		if fresh, ok := s.msgLogMediaURL(entryID, index); ok {
+			rawURL = fresh
+			u, status, errMsg = parseMsgLogMediaURL(rawURL)
+		}
+	}
+	if u == nil {
+		if hasRef && rawURL == "" {
+			writeError(w, http.StatusNotFound, "媒体地址已失效，且无法从平台重新获取")
+			return
+		}
+		writeError(w, status, errMsg)
+		return
+	}
+
+	resp, err := s.fetchMsgLogMedia(r.Context(), u)
+	// 旧地址失效（rkey 过期、一次性下载链接已被使用）：续期后重试一次。
+	// 浏览器已取消（切走页面 / 图片滚出视口）时不再打扰协议端。
+	if err != nil && hasRef && r.Context().Err() == nil {
+		if fresh, ok := s.msgLogMediaURL(entryID, index); ok && fresh != rawURL {
+			if fu, _, _ := parseMsgLogMediaURL(fresh); fu != nil {
+				if resp2, err2 := s.fetchMsgLogMedia(r.Context(), fu); err2 == nil {
+					resp = resp2
+					err = nil
+				}
+			}
+		}
+	}
+	if err != nil {
+		if r.Context().Err() == nil {
+			writeError(w, http.StatusBadGateway, "获取媒体失败: "+err.Error())
+		}
+		return
+	}
+	defer resp.Body.Close()
+
+	name := sanitizeMediaName(q.Get("name"))
+	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
+	if contentType == "" {
+		if ext := path.Ext(name); ext != "" {
+			contentType = mime.TypeByExtension(ext)
+		}
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if resp.ContentLength > 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
+	}
+	if name != "" {
+		disposition := "inline"
+		if q.Get("download") == "1" {
+			disposition = "attachment"
+		}
+		// RFC 5987：filename* 用 percent-encoding；QueryEscape 把空格写成 +，
+		// 这里换回 %20，避免部分客户端把 + 当成文件名的一部分
+		encoded := strings.ReplaceAll(url.QueryEscape(name), "+", "%20")
+		w.Header().Set("Content-Disposition", fmt.Sprintf(
+			"%s; filename=%q; filename*=UTF-8''%s",
+			disposition, mediaFallbackName(name), encoded,
+		))
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, io.LimitReader(resp.Body, maxMsgLogMediaBytes))
+}
+
+// msgLogMediaURL 向插件申请媒体续期地址；未提供续期能力时返回 false。
+func (s *Server) msgLogMediaURL(entryID uint64, index int) (string, bool) {
+	if s.opt.MsgLogMedia == nil {
+		return "", false
+	}
+	return s.opt.MsgLogMedia(entryID, index)
+}
+
+// parseMsgLogMediaRef 解析媒体请求里的日志引用（entry / index）。
+// 未提供 entry 时 has 为 false；格式非法时返回错误提示（面板退化为不支持续期）。
+func parseMsgLogMediaRef(q url.Values) (entryID uint64, index int, has bool, errMsg string) {
+	rawEntry := strings.TrimSpace(q.Get("entry"))
+	if rawEntry == "" {
+		return 0, 0, false, ""
+	}
+	entryID, err := strconv.ParseUint(rawEntry, 10, 64)
+	if err != nil || entryID == 0 {
+		return 0, 0, false, "entry 参数格式错误（应为日志 ID）"
+	}
+	if rawIndex := strings.TrimSpace(q.Get("index")); rawIndex != "" {
+		n, err := strconv.Atoi(rawIndex)
+		if err != nil || n < 0 {
+			return 0, 0, false, "index 参数格式错误（应为非负整数）"
+		}
+		index = n
+	}
+	return entryID, index, true, ""
+}
+
+// parseMsgLogMediaURL 校验并解析媒体地址：只允许 http(s)，拒绝本机 / 私网。
+// 校验失败时返回对应的 HTTP 状态码与错误提示。
+func parseMsgLogMediaURL(raw string) (u *url.URL, status int, errMsg string) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return nil, http.StatusBadRequest, "url 参数必须是 http(s) 地址"
+	}
+	if !msgLogMediaHostAllowed(u.Hostname()) {
+		return nil, http.StatusForbidden, "不允许代理本机或内网地址"
+	}
+	return u, 0, ""
+}
+
+// fetchMsgLogMedia 抓取媒体：只接受 2xx 且体积在上限内的响应。
+func (s *Server) fetchMsgLogMedia(ctx context.Context, u *url.URL) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, errors.New("无效的媒体地址")
+	}
+	// 部分 CDN 对无 UA / 无 Referer 的请求直接 403；UA 带浏览器前缀，Referer 用同源地址
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; AniaBot-Panel)")
+	req.Header.Set("Referer", u.Scheme+"://"+u.Host+"/")
+	req.Header.Set("Accept", "*/*")
+
+	client := msgLogMediaClient
+	if s.mediaHTTP != nil {
+		client = s.mediaHTTP
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		resp.Body.Close()
+		return nil, fmt.Errorf("上游返回 HTTP %d", resp.StatusCode)
+	}
+	if resp.ContentLength > maxMsgLogMediaBytes {
+		resp.Body.Close()
+		return nil, errors.New("媒体文件过大（超过 64MB）")
+	}
+	return resp, nil
+}
+
+// parseLogID 解析日志游标（十进制日志 ID）；空串视为未提供（返回 0）。
+func parseLogID(v, name string) (uint64, string) {
+	if v == "" {
+		return 0, ""
+	}
+	n, err := strconv.ParseUint(v, 10, 64)
+	if err != nil {
+		return 0, name + " 游标格式错误（应为数字日志 ID）"
+	}
+	return n, ""
+}
+
+// msgLogMediaHostAllowed 判断媒体代理是否允许访问该主机：拒绝 localhost 与
+// 本机 / 私网 / 链路本地 IP 字面量。域名不做 DNS 解析（QQ、微信等媒体域名是
+// 公网 CDN；局域网自建媒体服务仍可通过域名访问）。
+func msgLogMediaHostAllowed(host string) bool {
+	host = strings.ToLower(strings.Trim(host, "[]"))
+	if host == "" || host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return false
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return !(ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+			ip.IsLinkLocalMulticast() || ip.IsUnspecified())
+	}
+	return true
+}
+
+// sanitizeMediaName 清理下载文件名：去掉换行、引号、路径分隔符等会破坏响应头
+// 或产生目录穿越的字符，并限制长度。
+func sanitizeMediaName(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	raw = strings.Map(func(r rune) rune {
+		switch r {
+		case '\r', '\n', '"', '\\', '/', 0:
+			return '_'
+		}
+		return r
+	}, raw)
+	if runes := []rune(raw); len(runes) > 120 {
+		raw = string(runes[:120])
+	}
+	return raw
+}
+
+// mediaFallbackName 生成 Content-Disposition 的 ASCII 兜底文件名（老客户端
+// 不支持 filename* 时使用）：仅保留后缀，前缀固定为 media。
+func mediaFallbackName(name string) string {
+	ext := strings.ToLower(path.Ext(name))
+	ok := len(ext) > 1 && len(ext) <= 16
+	for _, r := range ext[1:] {
+		if !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') {
+			ok = false
+			break
+		}
+	}
+	if ok {
+		return "media" + ext
+	}
+	return "media"
+}
+
+// parseQueryLogFilter 解析 AI Query 日志的过滤条件（不含分页参数）。
+// 返回错误说明文本（非空表示参数非法）。
+func parseQueryLogFilter(r *http.Request) (querylog.Filter, string) {
+	q := r.URL.Query()
+	f := querylog.Filter{
+		Kind:     q.Get("kind"),
+		ChatType: q.Get("chat_type"),
+		TargetID: q.Get("target_id"),
+		Sender:   q.Get("sender"),
+		Keyword:  q.Get("keyword"),
+	}
+	if f.Kind != "" && f.Kind != querylog.KindChat && f.Kind != querylog.KindProactive {
+		return f, "kind 仅支持 chat / proactive"
+	}
+	if f.ChatType != "" && f.ChatType != "group" && f.ChatType != "friend" {
+		return f, "chat_type 仅支持 group / friend"
+	}
+	if v := q.Get("start"); v != "" {
+		t, err := parseQueryTime(v)
+		if err != nil {
+			return f, "start 时间格式错误（支持 RFC3339 或 2006-01-02T15:04）"
+		}
+		f.Start = t
+	}
+	if v := q.Get("end"); v != "" {
+		t, err := parseQueryTime(v)
+		if err != nil {
+			return f, "end 时间格式错误（支持 RFC3339 或 2006-01-02T15:04）"
+		}
+		f.End = t
+	}
+	if v := q.Get("before"); v != "" {
+		if _, err := strconv.ParseUint(v, 36, 64); err != nil {
+			return f, "before 游标格式错误（应为日志 ID）"
+		}
+		f.Before = v
+	}
+	return f, ""
 }
 
 // handleQueryLogs 按条件分页查询 AI Query 日志（新在前）。
@@ -844,46 +1356,12 @@ func (s *Server) handleQueryLogs(w http.ResponseWriter, r *http.Request) {
 		writePagedLogs(w, nil, false)
 		return
 	}
-	q := r.URL.Query()
-	f := querylog.Filter{
-		Kind:     q.Get("kind"),
-		ChatType: q.Get("chat_type"),
-		TargetID: q.Get("target_id"),
-		Sender:   q.Get("sender"),
-		Keyword:  q.Get("keyword"),
-	}
-	if f.Kind != "" && f.Kind != querylog.KindChat && f.Kind != querylog.KindProactive {
-		writeError(w, http.StatusBadRequest, "kind 仅支持 chat / proactive")
+	f, msg := parseQueryLogFilter(r)
+	if msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
-	if f.ChatType != "" && f.ChatType != "group" && f.ChatType != "friend" {
-		writeError(w, http.StatusBadRequest, "chat_type 仅支持 group / friend")
-		return
-	}
-	if v := q.Get("start"); v != "" {
-		t, err := parseQueryTime(v)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "start 时间格式错误（支持 RFC3339 或 2006-01-02T15:04）")
-			return
-		}
-		f.Start = t
-	}
-	if v := q.Get("end"); v != "" {
-		t, err := parseQueryTime(v)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "end 时间格式错误（支持 RFC3339 或 2006-01-02T15:04）")
-			return
-		}
-		f.End = t
-	}
-	if v := q.Get("before"); v != "" {
-		if _, err := strconv.ParseUint(v, 36, 64); err != nil {
-			writeError(w, http.StatusBadRequest, "before 游标格式错误（应为日志 ID）")
-			return
-		}
-		f.Before = v
-	}
-	limit := parsePageLimit(q.Get("limit"))
+	limit := parsePageLimit(r.URL.Query().Get("limit"))
 	f.Limit = limit + 1
 	items := s.opt.QueryLogs(f)
 	hasMore := len(items) > limit
@@ -891,6 +1369,49 @@ func (s *Server) handleQueryLogs(w http.ResponseWriter, r *http.Request) {
 		items = items[:limit]
 	}
 	writePagedLogs(w, items, hasMore)
+}
+
+// handleQueryLogsExport 按当前筛选条件导出全部 Query 日志（JSON 文件下载）。
+func (s *Server) handleQueryLogsExport(w http.ResponseWriter, r *http.Request) {
+	if s.opt.QueryLogs == nil {
+		writeError(w, http.StatusNotFound, "Query 日志功能未启用")
+		return
+	}
+	f, msg := parseQueryLogFilter(r)
+	if msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	// 导出不分页，保留全部命中记录
+	f.Before, f.Limit = "", 0
+	items := s.opt.QueryLogs(f)
+	if items == nil {
+		items = []querylog.Entry{}
+	}
+	oplog.Record(oplog.CategorySystem, "query_log_export", fmt.Sprintf("面板导出 Query 日志 %d 条", len(items)))
+	writeDownloadJSON(w, "querylogs-"+time.Now().Format("20060102-150405")+".json", map[string]any{
+		"exported_at": time.Now().Format(time.RFC3339),
+		"total":       len(items),
+		"items":       items,
+	})
+}
+
+// handleQueryLogsClear 清除当前筛选条件下的 Query 日志（无筛选时清空全部）。
+func (s *Server) handleQueryLogsClear(w http.ResponseWriter, r *http.Request) {
+	if s.opt.QueryLogsClear == nil {
+		writeError(w, http.StatusNotFound, "Query 日志功能未启用")
+		return
+	}
+	f, msg := parseQueryLogFilter(r)
+	if msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	f.Before, f.Limit = "", 0
+	n := s.opt.QueryLogsClear(f)
+	s.opt.Logger.Info("Query 日志已通过 Web 面板清除", "removed", n)
+	oplog.Record(oplog.CategorySystem, "query_log_clear", fmt.Sprintf("面板清除 Query 日志 %d 条", n))
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "removed": n})
 }
 
 // handleConsoleLogs 分页返回控制台日志（slog 结构化日志与标准库 log 输出，
@@ -984,15 +1505,31 @@ func parsePageLimit(v string) int {
 	return n
 }
 
-// writePagedLogs 输出分页日志响应；items 为 nil 时序列化为空数组而非 null。
+// writePagedLogs 输出分页日志响应；items 为 nil（含 typed nil 切片）时序列化为空数组而非 null。
 func writePagedLogs(w http.ResponseWriter, items any, hasMore bool) {
 	if items == nil {
+		items = []any{}
+	} else if v := reflect.ValueOf(items); v.Kind() == reflect.Slice && v.IsNil() {
 		items = []any{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"items":    items,
 		"has_more": hasMore,
 	})
+}
+
+// writeDownloadJSON 以 JSON 附件形式输出数据（日志导出用）。直接流式编码，
+// 避免先把大日志完整序列化到内存。
+func writeDownloadJSON(w http.ResponseWriter, filename string, payload any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	w.Header().Set("Cache-Control", "no-store")
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(payload); err != nil {
+		// 响应头已发出，只能记录错误（正常情况下不可能失败）
+		slog.Error("导出日志编码失败", "filename", filename, "error", err)
+	}
 }
 
 // parseQueryTime 解析面板传来的时间：RFC3339，或 datetime-local 控件的
@@ -1173,6 +1710,39 @@ func (s *Server) handleSkillDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	s.opt.Logger.Info("skill 已通过 Web 面板删除", "skill", name)
 	oplog.Record(oplog.CategorySkill, "skill_delete", "面板删除 skill: "+name)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleSkillToggle 启用/禁用外置 skill（内置 skill 不可禁用）。
+// 禁用后 skill 描述不进入上下文、不可被 skill_read 读取，改动即时生效。
+func (s *Server) handleSkillToggle(w http.ResponseWriter, r *http.Request) {
+	if s.opt.Skills == nil {
+		writeError(w, http.StatusNotFound, "skill 功能未启用")
+		return
+	}
+	src, ok := s.opt.Skills.(SkillToggleSource)
+	if !ok {
+		writeError(w, http.StatusNotFound, "skill 启停功能未启用")
+		return
+	}
+	name := r.PathValue("name")
+	var body struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := readJSON(r, &body); err != nil || body.Enabled == nil {
+		writeError(w, http.StatusBadRequest, `请求体需为 {"enabled": true|false}`)
+		return
+	}
+	if err := src.SkillSetEnabled(name, *body.Enabled); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	action := "启用"
+	if !*body.Enabled {
+		action = "禁用"
+	}
+	s.opt.Logger.Info("skill 启停状态已通过 Web 面板修改", "skill", name, "enabled", *body.Enabled)
+	oplog.Record(oplog.CategorySkill, "skill_toggle", "面板"+action+" skill: "+name)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

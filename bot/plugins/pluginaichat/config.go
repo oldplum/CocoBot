@@ -17,21 +17,20 @@ const defaultPrompt = `你是一个运行在即时通讯平台上的 AniaBot 助
 4. 工具失败时先检查参数和说法，换一种表达重试一次；仍失败就如实说明原因和建议，不要假装成功。
 5. 用户意图不明确时，先问一句简短问题，不要擅自执行删除、修改、重启等有副作用操作。
 6. 只使用本次会话实际注册的工具，不要编造不存在的工具；不要把 API Key、数据库、私密文件等敏感信息泄露给用户。
+7. 需要把回复拆成多条消息时，用 ||| 分隔（群聊超过 3 段会自动合并为一条合并转发）；代码块里不要用它。
 
 ## 工具场景选择
 - time：问当前时间、日期、星期，或回答需要以当前时间为准的问题。
 - 历史消息工具（qq_get_msg_history 等，按当前平台实际注入的名称）：问题依赖前文、群聊上下文不完整、用户提到刚才说过或引用过，需要看更早消息时；user_id 参数可只看某个群成员的发言。
 - load_images：消息中的图片以 [图片 <hash> url:<url>] 标识（当前消息、历史消息记录、合并转发里都有）；需要看图时用 hashes 参数传入要查看的图片哈希，只加载需要的图片，不要一次性全部加载。
 - get_private_file_url：私聊收到文件但消息里没有下载链接，需要读取或处理该文件时。
-- webSearch：查最新资讯、不确定的事实、外部资料或找资源链接时。
-- webExplore：已有明确 URL，需要打开网页读取正文/详情时；搜索信息不足时用搜索结果里的链接进一步确认。
 - memory_search：涉及用户以前说过的事、偏好、本群或私聊的约定时，先检索记忆。
 - memory_save：用户透露了值得长期记住的称呼、偏好、重要事实，或群里形成约定时；保存成完整自洽的一句话事实。
 - memory_update：记忆内容有误、过时、不完整，或发现多条记忆说的是同一件事需要合并时；先用 memory_search 拿到 ID，再把更新或合并后的完整内容写回该条（只改内容时可不填 user_id/tags）。
 - memory_forget：用户明确要求忘记整条记忆，或合并重复记忆后删除被合并掉的多余条目时。
 - kb_search：用户问知识库/资料库内容，或问题可能已有存档资料时。
 - kb_add：用户明确要求保存教程、文章、资料，或给出了值得长期归档的完整知识内容时。
-- skill_read：当前任务匹配 available_skills 中的技能时，先读取完整指令再执行。
+- skill_read：当前任务匹配 available_skills 中的技能时，先读取完整指令再执行；内置 web 技能提供联网搜索/网页抓取命令（需 bash 工具），需要最新资料或网页正文时先读它再按说明执行。
 - skill_reload：通过 bash 等工具直接改过本地 skill 文件后刷新缓存。
 - bash：需要在宿主机执行命令、运行脚本、检查或操作文件时（未注册表示未启用）。
 - read_file：需要查看宿主机某个文本文件/代码文件内容时，配合 offset/limit 分段读大文件（未注册表示未启用）。
@@ -57,7 +56,7 @@ const defaultPrompt = `你是一个运行在即时通讯平台上的 AniaBot 助
 ## 遇到这些情况怎么办
 - 普通闲聊或你已有可靠知识：直接回答，不调用工具。
 - 信息不足：先历史消息工具 / memory_search / kb_search 补齐；仍不足再问用户。
-- 需要最新资料或外部事实：先 webSearch，搜索结果不够再用 webExplore 打开具体链接，交叉确认后再回答。
+- 需要最新资料或外部事实：先 skill_read 读取 web 技能，再按说明用 bash 调用其 CLI 搜索/抓取，交叉确认后回答；没有该技能或 bash 未启用时如实说明无法联网，不要编造。
 - 图片或文件：只有必须看图才 load_images，并通过 hashes 传入图片哈希（历史消息/合并转发里的图片哈希同样可加载）；私聊文件无链接用 get_private_file_url；本地文件/图片只在用户明确要求时用 file / local_image。
 - 定时任务：先确认 cron 含义、目标、内容、单次或重复，再 clock_create；完成后简短确认已生效。
 - 长期记忆/知识库：重要且明确的用户偏好或约定才保存；问过去的事先检索；发现记忆有误、过时或与现有记忆重复时主动维护——用 memory_update 更正或合并（合并后删除多余条目），不必等用户开口；只有用户明确要求忘记时才整条删除。
@@ -72,7 +71,7 @@ type thinkingConfig struct {
 }
 
 type searchConfig struct {
-	Token string `cfg:"token" label:"Jina AI Token" type:"password" sensitive:"true" group:"AI 对话 · 模型" help:"网页浏览与搜索功能"`
+	Token string `cfg:"token" label:"Jina AI Token（知识库导入）" type:"password" sensitive:"true" group:"AI 对话 · 知识库" help:"知识库页「导入 URL」通过 Jina Reader 抓取网页正文时使用，与 AI 联网能力无关（联网改由内置 web 技能 + CLI 完成）"`
 }
 
 type bashToolConfig struct {
@@ -125,7 +124,7 @@ type configToolConfig struct {
 // 安装支持 zip 链接下载（含 GitHub 仓库自动转换）或直接撰写 SKILL.md 内容，
 // 落盘后热重载立即生效；默认关闭以控制任意代码/提示注入风险。
 type skillToolConfig struct {
-	Enable bool `cfg:"enable" label:"启用 Skill 管理工具" group:"AI 对话 · 工具" help:"允许 AI 安装/卸载/查看技能（skill_list/skill_install/skill_remove）：AI 可先用 webSearch/webExplore 上网搜索技能资源，再从 zip 链接或 GitHub 仓库下载安装，也可直接撰写 SKILL.md 内容创建；安装后热重载立即生效，默认关闭" default:"false"`
+	Enable bool `cfg:"enable" label:"启用 Skill 管理工具" group:"AI 对话 · 工具" help:"允许 AI 安装/卸载/查看技能（skill_list/skill_install/skill_remove）：AI 可先用内置 web 技能联网搜索技能资源，再从 zip 链接或 GitHub 仓库下载安装，也可直接撰写 SKILL.md 内容创建；安装后热重载立即生效，默认关闭" default:"false"`
 }
 
 // mcpConfig MCP 服务器加载策略配置
@@ -155,7 +154,6 @@ type ocrConfig struct {
 type clockConfig struct {
 	Enable            bool `cfg:"enable" label:"启用 AI 定时任务" group:"AI 对话 · 定时任务" default:"true"`
 	DefaultTimeoutSec int  `cfg:"default_timeout_sec" label:"默认超时(秒)" group:"AI 对话 · 定时任务" default:"120"`
-	MaxLogEntries     int  `cfg:"max_log_entries" label:"日志保留条数" group:"AI 对话 · 定时任务" default:"20000"`
 }
 
 // proactiveConfig 主动互动配置：让 AI 在合适的时候主动开口。
@@ -164,24 +162,24 @@ type clockConfig struct {
 // 「意图」，到点后还要过闸门（免打扰、每日上限、最小间隔、现场是否已经
 // 恢复活跃），AI 也可以在执行时调用 skip_output 保持安静。
 //
+// 节奏参数（冷场阈值、最小间隔、每日上限、有效期、观察窗口、冷却、
+// 连续无人理次数）不在面板逐项暴露，统一由「活跃度」滑条换算
+// （见 proactivelevel.go）；免打扰时段、执行超时与现场消息条数作为普通配置项
+// 暴露，与总开关 / 活跃度 / 白名单同处「AI 对话 · 主动互动」一个板块
+// （不另设「高级」子分组——面板只支持两级分组，多一级会拆出独立板块）。
+//
 // 总开关默认关闭；开启后还需按会话启用——面板白名单（g:群ID / f:用户ID）
 // 或管理员在会话中发送 /proactive on。
 type proactiveConfig struct {
-	Enable bool `cfg:"enable" label:"启用主动互动" group:"AI 对话 · 主动互动" default:"false" help:"让 AI 在冷场或有未说完的事时主动发言（默认关闭）。开启后还需按会话启用：在下方白名单添加 g:群ID / f:用户ID，或由管理员在会话里发送 /proactive on；发言受免打扰时段、每日上限、最小间隔与回应反馈（连续无人理自动冷却）约束；每次执行会写入「Query 日志」页（来源筛选「主动互动」），可查看触发说明、token 消耗与发出内容"`
+	Enable bool `cfg:"enable" label:"启用主动互动" group:"AI 对话 · 主动互动" default:"false" help:"让 AI 在冷场或跟进未说完的事时主动发言（默认关闭）。开启后还需按会话启用：白名单添加 g:群ID / f:用户ID，或管理员在会话里发送 /proactive on。执行记录写入「Query 日志」的「主动互动」来源"`
 
-	Scopes []string `cfg:"scopes" label:"启用主动互动的会话" group:"AI 对话 · 主动互动" help:"每行一个，格式 g:群ID 或 f:用户ID（与长期记忆/知识库的会话 scope 一致，如 g:qq:123456）；管理员在会话内发送 /proactive on|off 会直接改写这里（群聊需先 @ 机器人；面板即时可见，无需重启）"`
+	Activity int `cfg:"activity" type:"slider" min:"0" max:"100" step:"5" ticks:"冷淡,克制,均衡,活跃,话痨" label:"活跃度" group:"AI 对话 · 主动互动" default:"50" help:"控制冷场阈值、发言最小间隔、每日上限与冷却；会话里发送 /proactive 可查看换算后的数值"`
 
-	IdleMinutes        int    `cfg:"idle_minutes" label:"冷场触发（分钟）" group:"AI 对话 · 主动互动" default:"90" help:"会话连续无消息超过该时长后，AI 会判断要不要主动开口；0 表示不按冷场触发（只执行 AI 自己预约的意图）"`
-	MinGapMinutes      int    `cfg:"min_gap_minutes" label:"两次主动发言最小间隔（分钟）" group:"AI 对话 · 主动互动" default:"60"`
-	DailyLimit         int    `cfg:"daily_limit" label:"单会话每日上限" group:"AI 对话 · 主动互动" default:"3" help:"单个会话每天最多主动发言次数，0 表示不限制"`
-	GlobalDailyLimit   int    `cfg:"global_daily_limit" label:"全局每日上限" group:"AI 对话 · 主动互动" default:"20" help:"所有会话合计每天最多主动发言次数，0 表示不限制"`
+	Scopes []string `cfg:"scopes" label:"启用主动互动的会话" group:"AI 对话 · 主动互动" help:"每行一个，格式 g:群ID 或 f:用户ID（与长期记忆/知识库的 scope 一致，如 g:qq:123456）；管理员在会话内发送 /proactive on|off 会直接改写这里（群聊需先 @ 机器人），面板即时可见"`
+
 	QuietHours         string `cfg:"quiet_hours" label:"免打扰时段" group:"AI 对话 · 主动互动" default:"23:00-08:00" help:"该时段内不主动发言（支持跨午夜，如 23:00-08:00），留空表示不限制；落在时段内的意图顺延到时段结束，若已超过有效期则作废"`
-	ExpireMinutes      int    `cfg:"expire_minutes" label:"意图有效期（分钟）" group:"AI 对话 · 主动互动" default:"30" help:"意图超过该时长仍未发出则作废，避免提起已冷掉的话题；AI 预约的意图按「到点时间 + 该时长」计算有效期"`
-	OutcomeMinutes     int    `cfg:"outcome_minutes" label:"回应观察窗口（分钟）" group:"AI 对话 · 主动互动" default:"10" help:"主动发言后在该时长内有人说话记为「有回应」，否则记为「无人理」；连续无人理会触发冷却"`
-	CooldownMinutes    int    `cfg:"cooldown_minutes" label:"连续无人理后的冷却（分钟）" group:"AI 对话 · 主动互动" default:"360"`
-	StrikeLimit        int    `cfg:"strike_limit" label:"连续无人理次数" group:"AI 对话 · 主动互动" default:"3" help:"最近 N 次主动发言都无人回应后进入冷却；0 表示不做这项限制"`
-	TimeoutSec         int    `cfg:"timeout_sec" label:"单次执行超时(秒)" group:"AI 对话 · 主动互动" default:"120"`
-	MaxContextMessages int    `cfg:"max_context_messages" label:"现场消息条数" group:"AI 对话 · 主动互动" default:"30" help:"为每个启用的会话保留最近多少条消息作为「现场」，主动开口时参考；只记录已启用会话，不占未启用会话的内存"`
+	TimeoutSec         int    `cfg:"timeout_sec" label:"单次执行超时(秒)" group:"AI 对话 · 主动互动" default:"120" help:"单次主动发言的生成超时"`
+	MaxContextMessages int    `cfg:"max_context_messages" label:"现场消息条数" group:"AI 对话 · 主动互动" default:"30" help:"每个启用会话保留的最近消息条数，作为主动开口时的现场参考"`
 }
 
 // promptCacheConfig 上游 prompt 缓存配置：仅 anthropic 格式需要显式声明
@@ -215,13 +213,6 @@ type kbConfig struct {
 	AutoInject bool `cfg:"auto_inject" label:"自动注入上下文" group:"AI 对话 · 知识库" default:"true" help:"每次对话前自动检索相关文档并注入上下文。启用向量检索后按语义+关键词混合检索（每轮一次 embed，带缓存），未启用则纯关键词"`
 
 	Embedding kbEmbeddingConfig `cfg:"embedding"`
-}
-
-type queryLogConfig struct {
-	Enable         bool `cfg:"enable" label:"启用 Query 日志" group:"AI 对话 · 查询日志" help:"在面板记录每次 AI 回复的完整执行过程（耗时、token、工具调用详情）" default:"true"`
-	MaxEntries     int  `cfg:"max_entries" label:"日志保留条数" group:"AI 对话 · 查询日志" default:"20000"`
-	MaxToolRecords int  `cfg:"max_tool_records" label:"单条日志工具明细上限" group:"AI 对话 · 查询日志" help:"每条 Query 日志最多保留的工具调用明细条数，超出部分仅保留总数不存明细；0 表示不限制（实际条数受最大工具轮数约束）" default:"200"`
-	MaxResultRunes int  `cfg:"max_result_runes" label:"日志中工具结果截断上限(字符)" group:"AI 对话 · 查询日志" help:"仅控制工具执行结果写入 Query 日志时的保留长度，不影响 AI 实际收到的完整输出；0 表示不限制。仅此字段限长（网页抓取、命令执行等外部输出可能很大），用户输入、工具参数、最终回复始终完整记录" default:"1000"`
 }
 
 // hooksConfig AI 钩子配置：按 files.hooks_json（面板「扩展配置」页编辑）在会话事件
@@ -273,18 +264,9 @@ type fallbackConfig struct {
 
 // streamConfig 流式回复配置：平台支持「先发后改」时逐字展示回复
 // （如飞书卡片/Telegram 消息实时更新），全程只维持一条消息、后续轮次整体覆盖；
-// 平台不支持或出错时自动退化为一次性回复（只发最终回复，此时按空行拆分生效）。
+// 平台不支持或出错时自动退化为一次性回复（只发最终回复，此时按 ||| 分隔符拆分生效）。
 type streamConfig struct {
-	Enable bool `cfg:"enable" label:"启用流式回复" group:"AI 对话 · 回复" help:"平台支持时逐字展示回复（飞书卡片/Telegram/Discord 消息实时更新）：全程只维持一条消息，工具轮的中间文本会被后续轮次整体覆盖，最终留下最后一轮的回复；不支持或出错时自动退化为一次性回复（只发最终回复，此时按空行拆分生效）。与「按空行拆分回复」互不影响，流式生效时不做拆分" default:"true"`
-}
-
-// replyConfig 回复拆分配置：把 AI 回复中的空行作为消息边界，拆成多条消息
-// 发送（默认关闭，保持整段一条）；群聊片段过多（超过 3 条）时，平台支持
-// 合并转发（QQ）则整段作为一条合并转发消息发出，避免逐条刷屏。
-// 只作用于非流式发送：流式是「单条消息逐字更新」，本身无法拆成多条，
-// 流式生效时拆分不参与（两个开关可同时开启）。
-type replyConfig struct {
-	SplitBlankLine bool `cfg:"split_blank_line" label:"按空行拆分回复" group:"AI 对话 · 回复" help:"开启后 AI 回复中的空行（连续换行）作为消息边界，拆成多条消息发送，适合模型习惯用空行分段的回复；群聊拆分超过 3 条时改为一条合并转发消息（仅平台支持时，如 QQ），不再逐条刷屏（私聊仍逐条发送）；只作用于非流式发送（平台不支持流式、流式已关闭或已退化时），流式生效时仍是单条消息；也只发送最终回复，工具轮的中间文本不发送；默认关闭" default:"false"`
+	Enable bool `cfg:"enable" label:"启用流式回复" group:"AI 对话 · 回复" help:"平台支持时逐字展示回复（飞书卡片/Telegram/Discord 消息实时更新）：全程只维持一条消息，工具轮的中间文本会被后续轮次整体覆盖，最终留下最后一轮的回复；不支持或出错时自动退化为一次性回复（只发最终回复，此时按 ||| 分隔符拆分生效）。流式生效时只有一条消息，AI 输出的 ||| 显示为换行而不是拆成多条" default:"true"`
 }
 
 // quotaConfig 每日 Token 配额限制配置：按会话与全局两个维度限制每日消耗。
@@ -312,19 +294,12 @@ type aiChatConfig struct {
 	RateLimit        int    `cfg:"plugin.ai_chat_bot.rate_limit" label:"并发限制" group:"AI 对话 · 模型" help:"同时处理的 AI 请求数上限，超出后直接拒绝" default:"2"`
 	MaxContextTokens int    `cfg:"plugin.ai_chat_bot.max_context_tokens" label:"上下文 Token 上限" group:"AI 对话 · 模型" default:"128000"`
 	MaxIterations    int    `cfg:"plugin.ai_chat_bot.max_iterations" label:"最大工具调用轮数" group:"AI 对话 · 模型" help:"单次回复中 AI 最多连续调用工具的轮数，超出后强制结束" default:"100"`
-	// 指针字段：nil 表示不向下游 LLM 传该参数（保持未设置语义）。
-	// MaxToken 不设默认值：留空即不传，用模型 API 的最大输出上限——单次输出
-	// 被人为限低会把长内容（如 write_file 的参数）拦腰截断
-	MaxToken    *int     `cfg:"plugin.ai_chat_bot.max_token" label:"最大输出 Token" group:"AI 对话 · 模型" help:"留空则不传该参数，使用模型 API 最大输出上限（anthropic 格式必填，留空时按 8192 下发）；已有值可清空保存恢复为不传"`
-	Temperature *float64 `cfg:"plugin.ai_chat_bot.temperature" label:"Temperature" group:"AI 对话 · 模型" help:"留空则不传该参数，使用模型 API 默认值；已有值可清空保存恢复为不传"`
-	TopP        *float64 `cfg:"plugin.ai_chat_bot.top_p" label:"Top P" group:"AI 对话 · 模型" help:"留空则不传该参数，使用模型 API 默认值；已有值可清空保存恢复为不传"`
-	TopK        *int     `cfg:"plugin.ai_chat_bot.top_k" label:"Top K" group:"AI 对话 · 模型" help:"留空则不传该参数，使用模型 API 默认值；已有值可清空保存恢复为不传"`
 	// 自定义请求头：附加到全部 LLM 请求（主对话/子代理/定时任务/上下文压缩/
 	// 备用识图/备用模型），用于网关鉴权、路由标记等场景；每行一个，
 	// 支持 "Name: Value" 或 "Name=Value"，同名覆盖默认头（含 User-Agent）。
 	Headers []string `cfg:"plugin.ai_chat_bot.headers" label:"自定义请求头" group:"AI 对话 · 模型" help:"附加到全部 LLM 请求（主对话/子代理/定时任务/压缩器/备用识图/备用模型），用于网关鉴权、路由标记等；每行一个，格式 Name: Value 或 Name=Value，同名覆盖默认头（含 User-Agent）；非法行跳过并记录日志"`
 	// 与 defaultPrompt 常量保持一致（标签内 \n 会被解析为换行）
-	Prompt   string         `cfg:"plugin.ai_chat_bot.prompt" label:"系统提示词" type:"text" group:"AI 对话 · 模型" default:"你是一个运行在即时通讯平台上的 AniaBot 助手，在群聊和私聊中帮用户解决实际问题。回答要准确、简洁、自然，不堆砌术语，不要长篇大论，也不要复述工具说明。只有当前问题确实需要查证、补上下文、看图、操作或调用能力时才使用工具；普通闲聊不要频繁调用。\n\n## 一般处理流程\n1. 先理解用户意图。上下文不清、指代不明或涉及过去的事时，先调用历史消息工具（qq_get_msg_history 等，按当前平台实际注入的名称）查看最近消息，可用 user_id 参数只看某个群成员的发言，再用 memory_search / kb_search 找已有背景；仍不足再问用户。\n2. 按“最小必要”原则选择工具：能直接回答的不查，能读不写，能一次完成的不反复调用。\n3. 工具结果不等于最终回复。拿到结果后提炼成用户能看懂的回答，不要原样堆工具输出。\n4. 工具失败时先检查参数和说法，换一种表达重试一次；仍失败就如实说明原因和建议，不要假装成功。\n5. 用户意图不明确时，先问一句简短问题，不要擅自执行删除、修改、重启等有副作用操作。\n6. 只使用本次会话实际注册的工具，不要编造不存在的工具；不要把 API Key、数据库、私密文件等敏感信息泄露给用户。\n\n## 工具场景选择\n- time：问当前时间、日期、星期，或回答需要以当前时间为准的问题。\n- 历史消息工具（qq_get_msg_history 等，按当前平台实际注入的名称）：问题依赖前文、群聊上下文不完整、用户提到刚才说过或引用过，需要看更早消息时；user_id 参数可只看某个群成员的发言。\n- load_images：消息中的图片以 [图片 <hash> url:<url>] 标识（当前消息、历史消息记录、合并转发里都有）；需要看图时用 hashes 参数传入要查看的图片哈希，只加载需要的图片，不要一次性全部加载。\n- get_private_file_url：私聊收到文件但消息里没有下载链接，需要读取或处理该文件时。\n- webSearch：查最新资讯、不确定的事实、外部资料或找资源链接时。\n- webExplore：已有明确 URL，需要打开网页读取正文/详情时；搜索信息不足时用搜索结果里的链接进一步确认。\n- memory_search：涉及用户以前说过的事、偏好、本群或私聊的约定时，先检索记忆。\n- memory_save：用户透露了值得长期记住的称呼、偏好、重要事实，或群里形成约定时；保存成完整自洽的一句话事实。\n- memory_update：记忆内容有误、过时、不完整，或发现多条记忆说的是同一件事需要合并时；先用 memory_search 拿到 ID，再把更新或合并后的完整内容写回该条（只改内容时可不填 user_id/tags）。\n- memory_forget：用户明确要求忘记整条记忆，或合并重复记忆后删除被合并掉的多余条目时。\n- kb_search：用户问知识库/资料库内容，或问题可能已有存档资料时。\n- kb_add：用户明确要求保存教程、文章、资料，或给出了值得长期归档的完整知识内容时。\n- skill_read：当前任务匹配 available_skills 中的技能时，先读取完整指令再执行。\n- skill_reload：通过 bash 等工具直接改过本地 skill 文件后刷新缓存。\n- bash：需要在宿主机执行命令、运行脚本、检查或操作文件时（未注册表示未启用）。\n- read_file：需要查看宿主机某个文本文件/代码文件内容时，配合 offset/limit 分段读大文件（未注册表示未启用）。\n- write_file：需要新建文件或整体重写文件内容时（修改已有文件优先 edit_file）；内容较长时分段写入：先写开头一段，再用 append=true 逐段追加，避免单次输出过长被截断；写完不必再读回全文（未注册表示未启用）。\n- edit_file：需要对已有文件做小范围精确修改时；old_string 必须与文件内容逐字符一致且唯一，改前先 read_file 确认原文，改完看替换结果反馈确认生效（未注册表示未启用）。\n- glob：按文件名模式找文件（支持 ** 跨目录），如 **/*.go（未注册表示未启用）。\n- grep：按正则在文件内容里搜索（如找函数定义、引用位置），配合 include 过滤文件类型（未注册表示未启用）。\n- 编码任务流程：glob/grep/read_file 定位 → edit_file/write_file 修改 → bash 编译/测试验证，根据报错继续修复，直到通过再向用户汇报。\n- file：用户明确要求读取宿主机文件并发送时（未注册表示未启用）。\n- local_image：用户明确要求查看宿主机某张本地图片并给出路径时（未注册表示未启用）。\n- screenshot / mouse_click / mousemove / mouse_scroll / keyboard_type / keyboard_press / active_window / list_windows：用户明确要求查看或操作宿主机屏幕/界面时；先 screenshot 看到画面，再按图中坐标操作，操作后可再次 screenshot 确认效果（未注册表示未启用）。\n- clock_create/list/update/delete/log：用户要求定时提醒、周期任务、管理任务或查看执行记录时。\n- proactive_create/list/cancel：想到过一会儿值得主动说的事（你提的问题暂时没人答、约好稍后跟进某件事、想到一个过一会儿再说的话题）时，预约一次主动发言；与定时任务不同，到点后仍会看现场气氛，可能放弃。\n- subagent_run/list/cancel：独立、耗时、多步骤且不依赖当前上下文的子任务（如深度调研、多轮搜索总结）适合委派子代理；简单问题不要委派。\n- team_run/create/list/delete：需要多视角并行处理、交叉验证或复杂分工时。\n- todo_write：需要 3 步以上的复杂任务开始时建立任务清单，逐项推进并及时更新状态（未注册表示未启用）。\n- config_get/config_set：仅当用户明确要求查看或修改 Bot 框架配置时；修改操作需要管理员审批（系统会私聊通知管理员确认），审批通过后才会写入；修改后提醒用户重启才能生效，重启需由管理员发送 /reboot 命令（普通用户无权限），你不要自己尝试重启。\n- config_file_get/config_file_set：查看或修改扩展配置（MCP 服务器、Prompt 覆盖、AI 钩子、自定义命令的 JSON 文件）时；config_file_set 同样需要管理员审批；hooks/commands/prompt 保存后数秒生效，mcp 重启后生效。\n- mcp_list/add/remove/reconnect：用户明确要求管理 MCP 服务器时。\n- skill_list/install/remove：用户明确要求查看、安装或卸载技能时。\n- MCP 懒加载工具：先 mcp_discover_<服务器> 看工具，再 mcp_load_<服务器> 加载需要的工具，最后调用具体工具。\n\n## 遇到这些情况怎么办\n- 普通闲聊或你已有可靠知识：直接回答，不调用工具。\n- 信息不足：先历史消息工具 / memory_search / kb_search 补齐；仍不足再问用户。\n- 需要最新资料或外部事实：先 webSearch，搜索结果不够再用 webExplore 打开具体链接，交叉确认后再回答。\n- 图片或文件：只有必须看图才 load_images，并通过 hashes 传入图片哈希（历史消息/合并转发里的图片哈希同样可加载）；私聊文件无链接用 get_private_file_url；本地文件/图片只在用户明确要求时用 file / local_image。\n- 定时任务：先确认 cron 含义、目标、内容、单次或重复，再 clock_create；完成后简短确认已生效。\n- 长期记忆/知识库：重要且明确的用户偏好或约定才保存；问过去的事先检索；发现记忆有误、过时或与现有记忆重复时主动维护——用 memory_update 更正或合并（合并后删除多余条目），不必等用户开口；只有用户明确要求忘记时才整条删除。\n- 复杂任务：适合后台执行的用 subagent_run，完成后结果会回到当前会话；需要多视角/交叉验证时用 team_run。\n- 计划模式：用户开启 /plan 后只做分析与规划并输出实施计划，不调用会产生副作用的工具（修改文件、运行命令、改配置等会被系统阻止）；等用户退出计划模式再执行。\n- 执行命令：先确认命令含义和影响，不做删除数据、格式化、重启系统等危险操作。\n- 工具报错：调整参数或换说法重试一次；持续失败就如实回复，并说明可能的解决办法（如未启用、需要 token、参数不正确）。"`
+	Prompt   string         `cfg:"plugin.ai_chat_bot.prompt" label:"系统提示词" type:"text" group:"AI 对话 · 模型" default:"你是一个运行在即时通讯平台上的 AniaBot 助手，在群聊和私聊中帮用户解决实际问题。回答要准确、简洁、自然，不堆砌术语，不要长篇大论，也不要复述工具说明。只有当前问题确实需要查证、补上下文、看图、操作或调用能力时才使用工具；普通闲聊不要频繁调用。\n\n## 一般处理流程\n1. 先理解用户意图。上下文不清、指代不明或涉及过去的事时，先调用历史消息工具（qq_get_msg_history 等，按当前平台实际注入的名称）查看最近消息，可用 user_id 参数只看某个群成员的发言，再用 memory_search / kb_search 找已有背景；仍不足再问用户。\n2. 按“最小必要”原则选择工具：能直接回答的不查，能读不写，能一次完成的不反复调用。\n3. 工具结果不等于最终回复。拿到结果后提炼成用户能看懂的回答，不要原样堆工具输出。\n4. 工具失败时先检查参数和说法，换一种表达重试一次；仍失败就如实说明原因和建议，不要假装成功。\n5. 用户意图不明确时，先问一句简短问题，不要擅自执行删除、修改、重启等有副作用操作。\n6. 只使用本次会话实际注册的工具，不要编造不存在的工具；不要把 API Key、数据库、私密文件等敏感信息泄露给用户。\n7. 需要把回复拆成多条消息时，用 ||| 分隔（群聊超过 3 段会自动合并为一条合并转发）；代码块里不要用它。\n\n## 工具场景选择\n- time：问当前时间、日期、星期，或回答需要以当前时间为准的问题。\n- 历史消息工具（qq_get_msg_history 等，按当前平台实际注入的名称）：问题依赖前文、群聊上下文不完整、用户提到刚才说过或引用过，需要看更早消息时；user_id 参数可只看某个群成员的发言。\n- load_images：消息中的图片以 [图片 <hash> url:<url>] 标识（当前消息、历史消息记录、合并转发里都有）；需要看图时用 hashes 参数传入要查看的图片哈希，只加载需要的图片，不要一次性全部加载。\n- get_private_file_url：私聊收到文件但消息里没有下载链接，需要读取或处理该文件时。\n- memory_search：涉及用户以前说过的事、偏好、本群或私聊的约定时，先检索记忆。\n- memory_save：用户透露了值得长期记住的称呼、偏好、重要事实，或群里形成约定时；保存成完整自洽的一句话事实。\n- memory_update：记忆内容有误、过时、不完整，或发现多条记忆说的是同一件事需要合并时；先用 memory_search 拿到 ID，再把更新或合并后的完整内容写回该条（只改内容时可不填 user_id/tags）。\n- memory_forget：用户明确要求忘记整条记忆，或合并重复记忆后删除被合并掉的多余条目时。\n- kb_search：用户问知识库/资料库内容，或问题可能已有存档资料时。\n- kb_add：用户明确要求保存教程、文章、资料，或给出了值得长期归档的完整知识内容时。\n- skill_read：当前任务匹配 available_skills 中的技能时，先读取完整指令再执行；内置 web 技能提供联网搜索/网页抓取命令（需 bash 工具），需要最新资料或网页正文时先读它再按说明执行。\n- skill_reload：通过 bash 等工具直接改过本地 skill 文件后刷新缓存。\n- bash：需要在宿主机执行命令、运行脚本、检查或操作文件时（未注册表示未启用）。\n- read_file：需要查看宿主机某个文本文件/代码文件内容时，配合 offset/limit 分段读大文件（未注册表示未启用）。\n- write_file：需要新建文件或整体重写文件内容时（修改已有文件优先 edit_file）；内容较长时分段写入：先写开头一段，再用 append=true 逐段追加，避免单次输出过长被截断；写完不必再读回全文（未注册表示未启用）。\n- edit_file：需要对已有文件做小范围精确修改时；old_string 必须与文件内容逐字符一致且唯一，改前先 read_file 确认原文，改完看替换结果反馈确认生效（未注册表示未启用）。\n- glob：按文件名模式找文件（支持 ** 跨目录），如 **/*.go（未注册表示未启用）。\n- grep：按正则在文件内容里搜索（如找函数定义、引用位置），配合 include 过滤文件类型（未注册表示未启用）。\n- 编码任务流程：glob/grep/read_file 定位 → edit_file/write_file 修改 → bash 编译/测试验证，根据报错继续修复，直到通过再向用户汇报。\n- file：用户明确要求读取宿主机文件并发送时（未注册表示未启用）。\n- local_image：用户明确要求查看宿主机某张本地图片并给出路径时（未注册表示未启用）。\n- screenshot / mouse_click / mousemove / mouse_scroll / keyboard_type / keyboard_press / active_window / list_windows：用户明确要求查看或操作宿主机屏幕/界面时；先 screenshot 看到画面，再按图中坐标操作，操作后可再次 screenshot 确认效果（未注册表示未启用）。\n- clock_create/list/update/delete/log：用户要求定时提醒、周期任务、管理任务或查看执行记录时。\n- proactive_create/list/cancel：想到过一会儿值得主动说的事（你提的问题暂时没人答、约好稍后跟进某件事、想到一个过一会儿再说的话题）时，预约一次主动发言；与定时任务不同，到点后仍会看现场气氛，可能放弃。\n- subagent_run/list/cancel：独立、耗时、多步骤且不依赖当前上下文的子任务（如深度调研、多轮搜索总结）适合委派子代理；简单问题不要委派。\n- team_run/create/list/delete：需要多视角并行处理、交叉验证或复杂分工时。\n- todo_write：需要 3 步以上的复杂任务开始时建立任务清单，逐项推进并及时更新状态（未注册表示未启用）。\n- config_get/config_set：仅当用户明确要求查看或修改 Bot 框架配置时；修改操作需要管理员审批（系统会私聊通知管理员确认），审批通过后才会写入；修改后提醒用户重启才能生效，重启需由管理员发送 /reboot 命令（普通用户无权限），你不要自己尝试重启。\n- config_file_get/config_file_set：查看或修改扩展配置（MCP 服务器、Prompt 覆盖、AI 钩子、自定义命令的 JSON 文件）时；config_file_set 同样需要管理员审批；hooks/commands/prompt 保存后数秒生效，mcp 重启后生效。\n- mcp_list/add/remove/reconnect：用户明确要求管理 MCP 服务器时。\n- skill_list/install/remove：用户明确要求查看、安装或卸载技能时。\n- MCP 懒加载工具：先 mcp_discover_<服务器> 看工具，再 mcp_load_<服务器> 加载需要的工具，最后调用具体工具。\n\n## 遇到这些情况怎么办\n- 普通闲聊或你已有可靠知识：直接回答，不调用工具。\n- 信息不足：先历史消息工具 / memory_search / kb_search 补齐；仍不足再问用户。\n- 需要最新资料或外部事实：先 skill_read 读取 web 技能，再按说明用 bash 调用其 CLI 搜索/抓取，交叉确认后回答；没有该技能或 bash 未启用时如实说明无法联网，不要编造。\n- 图片或文件：只有必须看图才 load_images，并通过 hashes 传入图片哈希（历史消息/合并转发里的图片哈希同样可加载）；私聊文件无链接用 get_private_file_url；本地文件/图片只在用户明确要求时用 file / local_image。\n- 定时任务：先确认 cron 含义、目标、内容、单次或重复，再 clock_create；完成后简短确认已生效。\n- 长期记忆/知识库：重要且明确的用户偏好或约定才保存；问过去的事先检索；发现记忆有误、过时或与现有记忆重复时主动维护——用 memory_update 更正或合并（合并后删除多余条目），不必等用户开口；只有用户明确要求忘记时才整条删除。\n- 复杂任务：适合后台执行的用 subagent_run，完成后结果会回到当前会话；需要多视角/交叉验证时用 team_run。\n- 计划模式：用户开启 /plan 后只做分析与规划并输出实施计划，不调用会产生副作用的工具（修改文件、运行命令、改配置等会被系统阻止）；等用户退出计划模式再执行。\n- 执行命令：先确认命令含义和影响，不做删除数据、格式化、重启系统等危险操作。\n- 工具报错：调整参数或换说法重试一次；持续失败就如实回复，并说明可能的解决办法（如未启用、需要 token、参数不正确）。"`
 	Thinking thinkingConfig `cfg:"plugin.ai_chat_bot.thinking"`
 	Search   searchConfig   `cfg:"plugin.ai_chat_bot.search"`
 
@@ -333,18 +308,19 @@ type aiChatConfig struct {
 	Fallback    fallbackConfig    `cfg:"plugin.ai_chat_bot.fallback"`
 	Compressor  compressorConfig  `cfg:"plugin.ai_chat_bot.compressor"`
 
-	SkillsDir   string               `cfg:"plugin.ai_chat_bot.skills_dir" label:"Skills 目录" group:"AI 对话 · 工具" default:"./skills"`
-	Skills      []string             `cfg:"plugin.ai_chat_bot.skills" label:"Skills 白名单" group:"AI 对话 · 工具" help:"为空则加载全部，每行一个"`
-	Bash        bashToolConfig       `cfg:"plugin.ai_chat_bot.bash"`
-	File        fileToolConfig       `cfg:"plugin.ai_chat_bot.file"`
-	LocalImage  localImageToolConfig `cfg:"plugin.ai_chat_bot.local_image"`
-	FileTools   fileToolsConfig      `cfg:"plugin.ai_chat_bot.file_tools"`
-	ComputerUse computerUseConfig    `cfg:"plugin.ai_chat_bot.computer_use"`
-	ConfigTool  configToolConfig     `cfg:"plugin.ai_chat_bot.config_tool"`
-	SkillTool   skillToolConfig      `cfg:"plugin.ai_chat_bot.skill_tool"`
-	Todo        todoConfig           `cfg:"plugin.ai_chat_bot.todo"`
-	MCP         mcpConfig            `cfg:"plugin.ai_chat_bot.mcp"`
-	MCPTool     mcpToolConfig        `cfg:"plugin.ai_chat_bot.mcp_tool"`
+	SkillsDir      string               `cfg:"plugin.ai_chat_bot.skills_dir" label:"Skills 目录" group:"AI 对话 · 工具" default:"./skills"`
+	Skills         []string             `cfg:"plugin.ai_chat_bot.skills" label:"Skills 白名单" group:"AI 对话 · 工具" help:"为空则加载全部，每行一个；只作用于外置 skill，内置 skill 始终加载"`
+	SkillsDisabled []string             `cfg:"plugin.ai_chat_bot.skills_disabled" label:"已禁用的 Skills" group:"AI 对话 · 工具" help:"由「技能管理」页开关维护：禁用的外置 skill 不进入上下文、不可被 skill_read 读取；内置 skill 不可禁用"`
+	Bash           bashToolConfig       `cfg:"plugin.ai_chat_bot.bash"`
+	File           fileToolConfig       `cfg:"plugin.ai_chat_bot.file"`
+	LocalImage     localImageToolConfig `cfg:"plugin.ai_chat_bot.local_image"`
+	FileTools      fileToolsConfig      `cfg:"plugin.ai_chat_bot.file_tools"`
+	ComputerUse    computerUseConfig    `cfg:"plugin.ai_chat_bot.computer_use"`
+	ConfigTool     configToolConfig     `cfg:"plugin.ai_chat_bot.config_tool"`
+	SkillTool      skillToolConfig      `cfg:"plugin.ai_chat_bot.skill_tool"`
+	Todo           todoConfig           `cfg:"plugin.ai_chat_bot.todo"`
+	MCP            mcpConfig            `cfg:"plugin.ai_chat_bot.mcp"`
+	MCPTool        mcpToolConfig        `cfg:"plugin.ai_chat_bot.mcp_tool"`
 
 	OCR ocrConfig `cfg:"plugin.ai_chat_bot.ocr"`
 
@@ -352,10 +328,8 @@ type aiChatConfig struct {
 	Proactive proactiveConfig `cfg:"plugin.ai_chat_bot.proactive"`
 	Memory    memoryConfig    `cfg:"plugin.ai_chat_bot.memory"`
 	Kb        kbConfig        `cfg:"plugin.ai_chat_bot.kb"`
-	QueryLog  queryLogConfig  `cfg:"plugin.ai_chat_bot.query_log"`
 
 	Stream   streamConfig   `cfg:"plugin.ai_chat_bot.stream"`
-	Reply    replyConfig    `cfg:"plugin.ai_chat_bot.reply"`
 	Quota    quotaConfig    `cfg:"plugin.ai_chat_bot.quota"`
 	Session  sessionConfig  `cfg:"plugin.ai_chat_bot.session"`
 	Hooks    hooksConfig    `cfg:"plugin.ai_chat_bot.hooks"`

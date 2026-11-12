@@ -43,10 +43,10 @@ for _, p := range ania.plugins {
 
 | 面板页面 | 接口 | 内置提供者 |
 | --- | --- | --- |
-| 消息日志 | `adminpanel.MsgLogSource` | 日志打印插件（`pluginlog`） |
+| 消息日志 | `adminpanel.MsgLogSource` + `adminpanel.MsgLogSessionSource` + 删除类的 `adminpanel.MsgLogDeleteSource` / `adminpanel.MsgLogSessionDeleteSource`（后三项可选） | 日志打印插件（`pluginlog`） |
 | 任务日志 | `adminpanel.TaskLogSource` | AI 对话插件（clock） |
 | 定时任务 | `adminpanel.ClockTaskSource` | AI 对话插件（clock） |
-| 技能管理 | `adminpanel.SkillSource` | AI 对话插件 |
+| 技能管理 | `adminpanel.SkillSource` + `adminpanel.SkillToggleSource`（可选） | AI 对话插件 |
 | 记忆管理 | `adminpanel.MemorySource` | AI 对话插件 |
 | 知识库 | `adminpanel.KnowledgeBaseSource` | AI 对话插件 |
 | Agent 团队 | `adminpanel.TeamSource` | AI 对话插件 |
@@ -62,9 +62,39 @@ type MsgLogSource interface {
     // 分页返回消息日志（新在前）；beforeID>0 时仅返回 ID 小于它的更旧日志（滚动分页游标）
     MsgLogPage(limit int, beforeID uint64) []msglog.Entry
 }
+
+// 可选：聊天式消息面板的会话分类与按会话分页。未实现时面板退化为「全部消息」单视图。
+type MsgLogSessionSource interface {
+    // 会话摘要（按最近活动倒序），面板左侧按群聊 / 私聊 / 系统通知分组展示
+    MsgLogSessions() []msglog.Session
+    // 指定会话的一页日志（新在前）：beforeID>0 取更旧分页；afterID>0 取轮询增量
+    MsgLogSessionPage(session string, limit int, beforeID, afterID uint64) []msglog.Entry
+}
+
+// 可选：为过期媒体地址续期。QQ 等平台的图片 / 文件地址带有时效性鉴权参数，
+// 过期后由面板媒体代理在转发失败时调用本接口重新申请一次。
+type MsgLogMediaSource interface {
+    MsgLogMediaURL(entryID uint64, index int) (string, bool)
+}
+
+// 可选：删除单条日志（面板「消息日志」页右键「删除消息」）。未实现时该入口不可用。
+type MsgLogDeleteSource interface {
+    // 返回是否实际删除（日志不存在 / 已被容量淘汰 / 已删除时为 false）
+    MsgLogDelete(id uint64) bool
+}
+
+// 可选：删除整个会话的日志（面板右键会话「删除会话记录」）。未实现时该入口不可用。
+type MsgLogSessionDeleteSource interface {
+    // 删除会话 session（g:/f:/n:system）的全部日志，返回删除条数（无记录时为 0）
+    MsgLogDeleteSession(session string) int
+}
 ```
 
-`msglog.Entry` 字段：`ID uint64`、`Time`、`Type`、`GroupId`、`UserId`、`Nickname`、`Title`、`Text`。可用 `bot/component/msglog` 的 `Recorder` 记录与分页。
+`msglog.Entry` 字段：`ID uint64`、`Time`、`Type`、`GroupId`、`UserId`、`Nickname`、`Title`、`Text`、`Media`、`MessageId`。`Media` 描述消息内的图片 / 文件（`Kind`、`URL`、`Name`、`Size`、`FileId`），`URL` 只应填浏览器可访问的 http(s) 地址——`data:` / `base64:` 内联负载体积可达 MB 级，写进日志会让缓存存储迅速膨胀，面板会把它们当作不可展示的占位。`Entry.Deleted` 是内部删除标记，接口返回的数据源应自行过滤掉它（直接用 `msglog.Recorder` 的读取方法即可，已统一过滤）。
+
+会话键由 `Entry.SessionKey()` 统一生成：群消息 / 群通知为 `g:<群ID>`，好友消息 / 好友通知为 `f:<用户ID>`，其余通知为 `n:system`。推荐直接用 `bot/component/msglog` 的 `Recorder`：它按上述规则维护会话索引（首次查询时从存储重建，之后随 `Add` 增量更新），并自动对预览文本做截断。图片 / 文件下载由面板的媒体代理 `/api/msglogs/media?url=…&entry=…&index=…` 完成（管理员登录态访问、拒绝本机 / 私网地址），插件只需填好 `Media.URL`。
+
+`Entry.MessageId` 与 `Media.FileId` 决定媒体地址能否续期：QQ 过期后按 `FileId` 调 `get_image` / `get_file` / `get_group_file_url` 重新签发，失败再按 `MessageId` 重新拉取原消息；两者都缺省时面板只能显示加载失败，因此尽量一并记录（`Recorder` 侧无需额外处理，插件填好条目字段即可）。
 
 ### TaskLogSource —— 任务日志页
 
@@ -97,7 +127,14 @@ type SkillSource interface {
     SkillDelete(name string) error
     SkillUpload(filename string, data []byte) error // 从 zip 内容安装并热重载
 }
+
+// 可选：启用/禁用外置 skill（内置 skill 由实现方拒绝禁用）
+type SkillToggleSource interface {
+    SkillSetEnabled(name string, enabled bool) error
+}
 ```
+
+`plugininfo.SkillInfo` 的 `Builtin` / `Disabled` 字段用于面板展示内置标识与禁用状态。
 
 ### MemorySource —— 记忆管理页
 
@@ -192,7 +229,7 @@ func NewPlugin() *PollPlugin {
 }
 
 func (p *PollPlugin) Start(ctx context.Context, cfg *viper.Viper) error {
-	// 记录器挂在缓存存储上；写入上限 0 = 不限制
+	// 记录器挂在缓存存储上；写入上限 0 = 使用默认上限（5000 条）
 	p.recorder = msglog.New(p.Storage, 0)
 	return nil
 }
@@ -257,7 +294,7 @@ func main() {
 
 - **方法缺一不可**：`adminpanel.XxxSource` 是完整接口，实现时必须实现全部方法（不需要的能力返回空值/错误即可）
 - **nil 安全**：面板会在数据源为 nil 时返回空数据并正常渲染，插件内部初始化失败时返回 nil 即可，不要 panic
-- **即时生效**：`MemorySource` / `SkillSource` / `KnowledgeBaseSource` / `TeamSource` / `QuotaSource` 的改动由插件自己落盘，**无需重启**；`TaskLogSource` / `MsgLogSource` / `QueryLogSource` 是查询接口，同样实时反映插件当前数据
+- **即时生效**：`MemorySource` / `SkillSource` / `KnowledgeBaseSource` / `TeamSource` / `QuotaSource` 的改动由插件自己落盘，**无需重启**；`TaskLogSource` / `MsgLogSource` / `QueryLogSource` 是查询接口，同样实时反映插件当前数据；`MsgLogDeleteSource` / `MsgLogSessionDeleteSource` 由面板提交后立即生效，插件负责自行持久化删除结果（用 `msglog.Recorder` 的 `Delete` / `DeleteSession` 即可）
 - **数据量控制**：分页类接口遵循「新在前 + `before` 游标」约定，返回条数不要超过 `limit`；记录型组件（`msglog` / `tasklog` / `querylog`）内部已实现容量淘汰，直接复用即可
 - **与 `bot.QQ` 同款惯例**：这是「可选接口 + 类型断言」能力的又一应用，探测不到就优雅降级（页面空数据），框架与面板代码零改动
 

@@ -3,6 +3,7 @@ package pluginlog
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/jeanhua/AniaBot/bot/component/msglog"
 	"github.com/jeanhua/AniaBot/bot/utils"
@@ -17,6 +18,15 @@ import (
 type LogPlugin struct {
 	plugin.Meta
 	recorder *msglog.Recorder
+
+	// bot 是 Awake 注入的 core 级 bot 外观：面板媒体地址过期时用它按 ID 前缀
+	// 路由到来源适配器重新申请（见 MsgLogMediaURL）。
+	botMu sync.RWMutex
+	bot   bot.Bot
+
+	// mediaURLs 续期后的媒体地址短缓存（日志 ID + 媒体序号 → 地址）
+	mediaMu   sync.Mutex
+	mediaURLs map[mediaURLKey]mediaURLValue
 }
 
 func NewPlugin() *LogPlugin {
@@ -45,6 +55,16 @@ func (p *LogPlugin) Start(ctx context.Context, cfg *viper.Viper) error {
 	return nil
 }
 
+// Awake 保存 core 级 bot 外观：面板「消息日志」的媒体地址过期后，需要按
+// 日志里的会话 ID / 消息 ID 前缀路由到对应适配器重新申请地址。
+// 未收到 Awake（如设置向导未完成）时续期不可用，面板按加载失败展示。
+func (p *LogPlugin) Awake(ctx context.Context, b bot.Bot) error {
+	p.botMu.Lock()
+	p.bot = b
+	p.botMu.Unlock()
+	return nil
+}
+
 // MsgLogPage 供 Web 控制面板分页读取消息日志（实现 adminpanel.MsgLogSource）：
 // 新在前，beforeID>0 时仅返回 ID 小于它的更旧日志。
 func (p *LogPlugin) MsgLogPage(limit int, beforeID uint64) []msglog.Entry {
@@ -52,6 +72,42 @@ func (p *LogPlugin) MsgLogPage(limit int, beforeID uint64) []msglog.Entry {
 		return nil
 	}
 	return p.recorder.Page(limit, beforeID)
+}
+
+// MsgLogSessions 返回消息日志的会话摘要（实现 adminpanel.MsgLogSessionSource），
+// 供面板左侧会话列表按群聊 / 私聊 / 系统通知分类展示。
+func (p *LogPlugin) MsgLogSessions() []msglog.Session {
+	if p.recorder == nil {
+		return nil
+	}
+	return p.recorder.Sessions()
+}
+
+// MsgLogSessionPage 按会话读取一页日志（新在前）：beforeID>0 取更旧的分页，
+// afterID>0 取更新的增量（面板轮询用）。
+func (p *LogPlugin) MsgLogSessionPage(session string, limit int, beforeID, afterID uint64) []msglog.Entry {
+	if p.recorder == nil {
+		return nil
+	}
+	return p.recorder.PageSession(session, limit, beforeID, afterID)
+}
+
+// MsgLogDelete 删除面板里的一条消息日志（实现 adminpanel.MsgLogDeleteSource），
+// 供「消息日志」页右键删除单条记录。只删本地留存，不影响平台上的原消息。
+func (p *LogPlugin) MsgLogDelete(id uint64) bool {
+	if p.recorder == nil {
+		return false
+	}
+	return p.recorder.Delete(id)
+}
+
+// MsgLogDeleteSession 删除某个会话的全部日志（实现
+// adminpanel.MsgLogSessionDeleteSource），供面板右键会话「删除会话记录」。
+func (p *LogPlugin) MsgLogDeleteSession(session string) int {
+	if p.recorder == nil {
+		return 0
+	}
+	return p.recorder.DeleteSession(session)
 }
 
 // add 记录一条消息日志；recorder 未初始化（Start 之前）时忽略。
@@ -82,11 +138,13 @@ func (p *LogPlugin) OnGroupMsg(ctx context.Context, b bot.Bot, cmd command.Comma
 	text := msg.FriendlyText(false, opts...)
 	p.Logger.Info("[收<-群]: "+text, "groupId", msg.GroupId, "userId", msg.Sender.UserId)
 	p.add(msglog.Entry{
-		Type:     msglog.TypeGroup,
-		GroupId:  msg.GroupId.String(),
-		UserId:   msg.Sender.UserId.String(),
-		Nickname: senderName(msg),
-		Text:     text,
+		Type:      msglog.TypeGroup,
+		GroupId:   msg.GroupId.String(),
+		UserId:    msg.Sender.UserId.String(),
+		Nickname:  senderName(msg),
+		Text:      text,
+		Media:     extractMedia(msg.Message),
+		MessageId: msg.MessageId.String(),
 	})
 	return true, nil
 }
@@ -101,13 +159,36 @@ func (p *LogPlugin) OnFriendMsg(ctx context.Context, b bot.Bot, cmd command.Comm
 	}
 	text := msg.FriendlyText(false, opts...)
 	p.Logger.Info("[收<-好友]: "+text, "userId", msg.Sender.UserId)
+	media := extractMedia(msg.Message)
+	resolvePrivateFileURLs(b, msg.Sender.UserId, media)
 	p.add(msglog.Entry{
-		Type:     msglog.TypeFriend,
-		UserId:   msg.Sender.UserId.String(),
-		Nickname: msg.Sender.Nickname,
-		Text:     text,
+		Type:      msglog.TypeFriend,
+		UserId:    msg.Sender.UserId.String(),
+		Nickname:  msg.Sender.Nickname,
+		Text:      text,
+		Media:     media,
+		MessageId: msg.MessageId.String(),
 	})
 	return true, nil
+}
+
+// resolvePrivateFileURLs 私聊文件消息通常只带 file_id：向平台换一个临时下载
+// 地址（NapCat 的 get_private_file_url），面板的文件卡片才能直接下载。地址会
+// 过期，但消息日志只保留最近的记录，用户一般能及时下载；失败时保持无链接，
+// 面板展示为「暂无下载地址」。
+func resolvePrivateFileURLs(b bot.Bot, userId message.QID, media []msglog.Media) {
+	qb, ok := b.(bot.QQ)
+	if !ok {
+		return
+	}
+	for i := range media {
+		if media[i].Kind != msglog.MediaFile || media[i].URL != "" || media[i].FileId == "" {
+			continue
+		}
+		if u, ok := qb.GetPrivateFileURL(userId, media[i].FileId); ok && isHTTPURL(u) {
+			media[i].URL = u
+		}
+	}
 }
 
 // notice 记录一条通知事件日志。

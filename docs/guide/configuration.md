@@ -46,7 +46,7 @@ AniaBot 的全部配置存储在**数据库**中（持久化存储的 `ania_kv` 
 
 | 配置键 | 默认值 | 说明 |
 | --- | --- | --- |
-| `bot.admin_ids` | 空 | 管理员 ID 列表（每行一个，**可配置多个**）。QQ 为 `qq:QQ号`（如 `qq:123456789`），其他平台为带前缀的 ID（如飞书 `fs:ou_xxx`）。任一管理员均拥有最高权限：远程 `/exit` 退出、强制执行定时推送、查看全部定时任务、接收 panic 告警与启动通知、审批 AI 配置修改等。旧版单值键 `bot.admin_id` 会在启动时自动迁移为列表 |
+| `bot.admin_ids` | 空 | 管理员 ID 列表（每行一个，**可配置多个**）。QQ 为 `qq:QQ号`（如 `qq:123456789`），其他平台为带前缀的 ID（如飞书 `fs:ou_xxx`）。任一管理员均拥有最高权限：远程 `/exit` 退出、强制执行定时推送、查看全部定时任务、接收 panic 告警、审批 AI 配置修改等。旧版单值键 `bot.admin_id` 会在启动时自动迁移为列表 |
 | `bot.msg_event_timeout_sec` | `300` | 单条消息事件（如一次 AI 回复）的最大执行时长（秒），超时强制中止。AI 执行复杂任务（多轮工具调用/子代理）被超时中断时调大 |
 
 ### admin_panel —— Web 控制面板
@@ -84,12 +84,13 @@ AniaBot 的全部配置存储在**数据库**中（持久化存储的 `ania_kv` 
 | `bot.qqofficial.app_secret` | 空 | 机器人 AppSecret（敏感字段），用于换取 access_token |
 | `bot.qqofficial.sandbox` | `false` | 沙箱环境开关；机器人未上架前只能连接沙箱环境联调 |
 | `bot.qqofficial.api_base` | `https://api.sgroup.qq.com` | OpenAPI 地址（沙箱开关优先于此配置） |
+| `bot.qqofficial.auto_quote` | `false` | 回复时自动引用触发的提问消息（客户端显示为引用气泡）；默认关闭即直接发送 |
 | `bot.qqofficial.markdown` | `false` | AI 文本回复以 Markdown 消息（msg_type=2）发送，富文本渲染；发送失败自动降级纯文本 |
 
 ::: tip QQ 官方能做什么 / 不能做什么
 QQ 官方适配器覆盖**群聊 @机器人** 与 **单聊（C2C）** 两大场景：支持文本 / 图片 / 语音 / 视频 / 文件 / 引用回复，好友添加映射公共通知，机器人被拉群/移出/删除等走平台事件；入站消息自动注入 @机器人 的 at 段，群聊 @ 触发 AI 对话开箱即用。**平台限制**：
 - 发消息以**被动回复**为主（携带事件的 msg_id，群聊 5 分钟内最多 5 次、单聊 60 分钟内最多 4 次），超限自动降级主动消息（受官方频控与每日配额限制）
-- **不能 @ 群成员**（无对应 API），回复语义以「引用消息」表达（无显式 reply 段时自动引用触发消息，客户端显示为引用气泡）
+- **不能 @ 群成员**（无对应 API）；需要「回复某条」的视觉语义时，可开启「自动引用触发消息」，回复会引用提问消息显示为引用气泡（默认关闭，直接回复）
 - 无消息历史 / 单条消息查询 / 群资料 API：历史仅覆盖适配器运行期间的内存缓存（AI 会话历史不受影响，由持久化存储承载）
 - 无消息编辑 API：不支持流式回复（自动退化一次性发送）
 - 媒体（图片/视频/语音/文件）先经 `/files` 上传换取 file_info 再发送，URL 直传与本地字节分片上传都支持
@@ -281,8 +282,8 @@ X-Proxy-Route: team-a
 ::: tip 关于 API 格式
 三种格式的对话能力（工具调用、流式回复、token 统计、备用模型切换）行为一致。差异说明：
 
-- `anthropic`：深度思考（`thinking.mode`）映射为 `budget_tokens`，思考块会随历史持久化并在多轮中原样回传；`top_k` 原生支持，但开启思考时 temperature/top_p/top_k 按 API 要求不下发
-- `responses`：`top_k` 不支持会被忽略
+- `anthropic`：深度思考（`thinking.mode`）映射为 `budget_tokens`，思考块会随历史持久化并在多轮中原样回传；未开启思考时按模型 API 默认采样参数请求
+- `responses`：与 `chat_completions` 行为一致，按模型 API 默认采样参数请求
 - 上下文压缩器（`plugin.ai_chat_bot.compressor.api_format`）、备用模型（`plugin.ai_chat_bot.fallback.api_format`）可独立选择格式，留空跟随主模型；子代理与 Agent 团队成员固定跟随主模型格式
 :::
 
@@ -301,13 +302,11 @@ X-Proxy-Route: team-a
 | --- | --- | --- |
 | `plugin.ai_chat_bot.max_context_tokens` | `128000` | 上下文 token 预算，超过 80% 自动压缩历史 |
 | `plugin.ai_chat_bot.max_iterations` | `20` | 主对话单次回复的最大工具调用轮数，超出后强制结束 |
-| `plugin.ai_chat_bot.temperature` | `1.2` | 采样温度 |
-| `plugin.ai_chat_bot.top_p` | `0.9` | 核采样 |
-| `plugin.ai_chat_bot.top_k` | `100` | Top-K 采样 |
-| `plugin.ai_chat_bot.max_token` | 未设置 | 单次回复最大输出 token；留空不传该参数，使用模型 API 最大输出上限（anthropic 格式必填，留空时按 8192 下发）。设得过低会把长内容（如 write_file 的参数）拦腰截断 |
 | `plugin.ai_chat_bot.thinking.enable` | `false` | 深度思考开关 |
 | `plugin.ai_chat_bot.thinking.mode` | `auto` | `none` / `low` / `medium` / `high` / `auto` |
 | `plugin.ai_chat_bot.prompt` | 内置场景化 system prompt，按工具场景选择并说明异常处理方式（完整默认值见 `bot/plugins/pluginaichat/config.go` 的 `defaultPrompt`） | 系统提示词（system prompt） |
+
+采样参数（温度 / Top P / Top K / 最大输出 token）不再单独配置，统一使用模型 API 的默认值（anthropic 格式未指定 `max_tokens` 时按 8192 下发）。
 
 ::: tip 按群/按人定制人格（保存后立即生效，无需重启）
 在面板的「文件编辑 → Prompt 覆盖」页（配置键 `files.prompt_json`，原 `aniabot.prompt.json`），可为特定群聊或好友覆盖 system prompt：
@@ -324,17 +323,27 @@ X-Proxy-Route: team-a
 
 | 配置键 | 默认值 | 说明 |
 | --- | --- | --- |
-| `plugin.ai_chat_bot.skills_dir` | `./skills` | Skill 目录 |
-| `plugin.ai_chat_bot.skills` | `[]` | 指定加载的 skill 名称，空 = 加载全部 |
-| `plugin.ai_chat_bot.skill_tool.enable` | `false` | 启用 AI Skill 管理工具（`skill_list` / `skill_install` / `skill_remove`），允许 AI 用 `webSearch` / `webExplore` 上网搜索技能资源后自行下载安装（zip 链接 / GitHub 仓库 / SKILL.md 直链），或直接撰写 SKILL.md 内容创建技能，安装后热重载立即生效 |
+| `plugin.ai_chat_bot.skills_dir` | `./skills` | Skill 目录（内置技能会物化到该目录下的 `.builtin`） |
+| `plugin.ai_chat_bot.skills` | `[]` | 指定加载的外置 skill 名称，空 = 加载全部；内置 skill 始终加载 |
+| `plugin.ai_chat_bot.skills_disabled` | `[]` | 被禁用的外置 skill（面板「技能管理」页开关维护）：禁用后描述不进入上下文、不可被 `skill_read` 读取；内置 skill 不可禁用 |
+| `plugin.ai_chat_bot.skill_tool.enable` | `false` | 启用 AI Skill 管理工具（`skill_list` / `skill_install` / `skill_remove`），允许 AI 用内置 `web` 技能联网搜索技能资源后自行下载安装（zip 链接 / GitHub 仓库 / SKILL.md 直链），或直接撰写 SKILL.md 内容创建技能，安装后热重载立即生效 |
 
 常驻的 `skill_reload` 工具（无需开关）用于 AI 直接编辑本地 skill 文件（如经 `bash`）后刷新缓存——面板/管理工具的安装删除会自动热重载，绕过管理器直接改文件则需调用它刷新。
 
-### 联网搜索
+内置 `web` 技能随二进制发布、不可删除/禁用，自带 `webctl.py` CLI：
+
+```bash
+python3 "<webctl.py 绝对路径>" search --deepseek "查询词" [--count 8] [--content]
+python3 "<webctl.py 绝对路径>" fetch  --deepseek "https://example.com/article" [--offset 8000]
+```
+
+需要在运行 AniaBot 的环境中配置 `DEEPSEEK_API_KEY`（或在面板 bash 工具的「环境变量」中追加），并开启 `plugin.ai_chat_bot.bash.enable`。搜索/抓取平台通过 `--deepseek` 参数选择，后续可在 CLI 的 `PROVIDERS` 注册表中扩展其他平台。
+
+### 知识库网页导入
 
 | 配置键 | 默认值 | 说明 |
 | --- | --- | --- |
-| `plugin.ai_chat_bot.search.token` | 空 | Jina AI token，用于 `web_search` / `web_explore` 工具 |
+| `plugin.ai_chat_bot.search.token` | 空 | Jina AI token，仅用于知识库页「导入 URL」通过 Jina Reader 抓取正文 |
 
 ### OCR 备用识图
 
@@ -398,9 +407,8 @@ X-Proxy-Route: team-a
 | --- | --- | --- |
 | `plugin.ai_chat_bot.clock.enable` | `true` | 启用后 AI 可自主创建定时任务 |
 | `plugin.ai_chat_bot.clock.default_timeout_sec` | `120` | 单次触发默认超时（秒） |
-| `plugin.ai_chat_bot.clock.max_log_entries` | `500` | 执行日志保留条数（滚动覆盖） |
 
-与框架的 `StartCron` 静态任务不同，clock 任务由 AI / 用户**动态创建**、持久化保存、重启不丢。执行日志可在面板「状态总览」页查看。详见 [AI 对话插件](/guide/builtin-plugins#ai-对话插件)。
+与框架的 `StartCron` 静态任务不同，clock 任务由 AI / 用户**动态创建**、持久化保存、重启不丢。执行日志全量保留（不滚动淘汰），可在面板「AI 定时任务」页查看、导出或清除。详见 [AI 对话插件](/guide/builtin-plugins#ai-对话插件)。
 
 ### AI 主动互动（proactive）
 
@@ -409,18 +417,13 @@ X-Proxy-Route: team-a
 | 配置键 | 默认值 | 说明 |
 | --- | --- | --- |
 | `plugin.ai_chat_bot.proactive.enable` | `false` | 总开关；开启后还需按会话启用（下方白名单，或管理员在会话内发送 `/proactive on`） |
+| `plugin.ai_chat_bot.proactive.activity` | `50` | 活跃度滑条（`0`~`100`，从「冷淡」到「活跃」）：控制冷场阈值、发言最小间隔、单会话/全局每日上限与冷却。`50` 为「均衡」，与旧版默认值一致；会话里发 `/proactive` 可查看换算后的数值 |
 | `plugin.ai_chat_bot.proactive.scopes` | 空 | 启用会话白名单，每行一个 `g:会话ID` / `f:用户ID`；`/proactive on|off` 直接改写这里（群聊需先 @ 机器人） |
-| `plugin.ai_chat_bot.proactive.idle_minutes` | `90` | 会话安静超过该时长后生成冷场意图；`0` 表示不按冷场触发 |
-| `plugin.ai_chat_bot.proactive.min_gap_minutes` | `60` | 同一会话两次主动发言的最小间隔 |
-| `plugin.ai_chat_bot.proactive.daily_limit` | `3` | 单会话每日上限；`0` 不限制 |
-| `plugin.ai_chat_bot.proactive.global_daily_limit` | `20` | 全局每日上限；`0` 不限制 |
 | `plugin.ai_chat_bot.proactive.quiet_hours` | `23:00-08:00` | 免打扰时段（支持跨午夜），时段内的意图顺延到结束，撑不过有效期则作废；留空不限制 |
-| `plugin.ai_chat_bot.proactive.expire_minutes` | `30` | 意图有效期，超过仍未发出则作废 |
-| `plugin.ai_chat_bot.proactive.outcome_minutes` | `10` | 回应观察窗口：窗口内有人说话记「有回应」，否则记「无人理」 |
-| `plugin.ai_chat_bot.proactive.cooldown_minutes` | `360` | 连续无人理后的冷却时长 |
-| `plugin.ai_chat_bot.proactive.strike_limit` | `3` | 连续多少次无人理后进入冷却；`0` 关闭该限制 |
 | `plugin.ai_chat_bot.proactive.timeout_sec` | `120` | 单次生成超时（秒） |
 | `plugin.ai_chat_bot.proactive.max_context_messages` | `30` | 每会话保留的现场消息条数（作为主动开口时的参考） |
+
+活跃度的 5 个档位（`0` / `25` / `50` / `75` / `100`）分别为冷淡、克制、均衡、活跃、话痨，中间取值在相邻档位之间线性插值。旧的逐项节奏配置（`idle_minutes`、`min_gap_minutes`、`daily_limit`、`global_daily_limit`、`expire_minutes`、`outcome_minutes`、`cooldown_minutes`、`strike_limit`）已并入活跃度，留在数据库里不再生效。
 
 AI 也可以用 `proactive_create` / `proactive_list` / `proactive_cancel` 自行预约与取消意图（只能作用于当前会话）。`/proactive log` 可查看每次「说了什么、为什么没说」。详见 [AI 对话插件](/guide/builtin-plugins#主动互动proactive)。
 
@@ -437,7 +440,7 @@ AI 也可以用 `proactive_create` / `proactive_list` / `proactive_cancel` 自�
 
 子代理默认启用、无独立配置项：AI 通过 `subagent_run` 工具把复杂/耗时的子任务委派给一次性子代理执行，子代理以全新一次性上下文运行、拥有与主 AI 一致的工具能力，但**不能再委派子代理**。
 
-执行参数全部跟随主模型：模型与 API 格式、生成参数（Temperature / 参数 / 深度思考等）取「AI 对话 · 模型」配置；工具调用轮数取主模型的「最大工具调用轮数」；超时取框架级「消息处理超时」（`bot.msg_event_timeout_sec`，默认 5 分钟，单次调用可覆盖、上限 1800 秒，实际还会按主请求剩余预算自动收缩并预留收尾时间）。子代理结果不截断，完整回填给主 AI。详见 [AI 对话插件](/guide/builtin-plugins#ai-对话插件)。
+执行参数全部跟随主模型：模型与 API 格式、生成参数（深度思考等）取「AI 对话 · 模型」配置；工具调用轮数取主模型的「最大工具调用轮数」；超时取框架级「消息处理超时」（`bot.msg_event_timeout_sec`，默认 5 分钟，单次调用可覆盖、上限 1800 秒，实际还会按主请求剩余预算自动收缩并预留收尾时间）。子代理结果不截断，完整回填给主 AI。详见 [AI 对话插件](/guide/builtin-plugins#ai-对话插件)。
 
 
 ### AI 知识库（knowledge）
@@ -476,14 +479,7 @@ AI 也可以用 `proactive_create` / `proactive_list` / `proactive_cancel` 自�
 
 ### Query 日志（query_log）
 
-在面板记录每次 AI 回复的完整执行过程：
-
-| 配置键 | 默认值 | 说明 |
-| --- | --- | --- |
-| `plugin.ai_chat_bot.query_log.enable` | `true` | 启用 Query 日志 |
-| `plugin.ai_chat_bot.query_log.max_entries` | `200` | 日志保留条数（滚动覆盖） |
-| `plugin.ai_chat_bot.query_log.max_tool_records` | `200` | 单条日志保留的工具调用明细条数，超出部分仅保留总数；`0` 表示不限制 |
-| `plugin.ai_chat_bot.query_log.max_result_runes` | `1000` | 工具执行结果写入日志时的截断上限（字符数）；`0` 表示不限制。仅影响日志记录，不影响 AI 实际收到的完整输出；用户输入、工具参数、最终回复始终完整记录 |
+Query 日志默认开启且无独立配置项，在面板记录每次 AI 回复的完整执行过程。日志全量保留（不做容量淘汰、不截断工具结果，单条日志的工具调用明细也完整保存），由管理员在「Query 日志」页按当前筛选条件**导出**（JSON）或**清除**；前端展示工具结果超过 1000 字符时默认折叠，点击可展开。
 
 每条日志包含：触发会话、发送者、用户输入、LLM 轮数、工具调用明细（名称/参数/结果/耗时）、token 用量与最终回复，状态区分 `running` / `success` / `skipped`（主动互动中 AI 判断无需发言）/ `stopped` / `timeout` / `error`。面板「Query 日志」页可筛选查看；主动互动的执行（来源标记为「主动互动」）也会记录在这里，以触发说明替代用户输入。
 
@@ -491,13 +487,11 @@ AI 也可以用 `proactive_create` / `proactive_list` / `proactive_cancel` 自�
 
 | 配置键 | 默认值 | 说明 |
 | --- | --- | --- |
-| `plugin.ai_chat_bot.stream.enable` | `true` | 平台支持「先发后改」时（飞书卡片 / Telegram / Discord 消息实时更新）逐字展示回复：全程只维持一条消息，工具轮的中间文本先展示、随后被下一轮文本整体覆盖，最终留下最后一轮的回复；不支持或出错时自动退化为一次性回复（只发最终回复，此时按空行拆分生效）。与「按空行拆分回复」互不影响 |
+| `plugin.ai_chat_bot.stream.enable` | `true` | 平台支持「先发后改」时（飞书卡片 / Telegram / Discord 消息实时更新）逐字展示回复：全程只维持一条消息，工具轮的中间文本先展示、随后被下一轮文本整体覆盖，最终留下最后一轮的回复；不支持或出错时自动退化为一次性回复（只发最终回复，此时按 `|||` 分隔符拆分生效）。流式生效时只有一条消息，`|||` 显示为换行而不是拆成多条 |
 
 ### 回复拆分（reply）
 
-| 配置键 | 默认值 | 说明 |
-| --- | --- | --- |
-| `plugin.ai_chat_bot.reply.split_blank_line` | `false` | 开启后把回复中的空行作为消息边界，拆成多条消息发送（群聊仅首条 @ 发送者）；群聊拆分超过 3 条时改为一条合并转发消息（仅平台支持时，如 QQ），不再逐条刷屏，私聊仍逐条发送；只作用于非流式发送（平台不支持流式、流式已关闭或已退化时），流式生效时仍是单条消息；也只发送最终回复，工具轮的中间文本不发送。适合模型习惯用空行分段回复的场景 |
+回复可以按 `|||` 分隔符拆成多条消息发送：AI 在回复中用 `|||` 表示「下一条消息从这里开始」，始终生效，没有开关。代码块（``` 围栏）内的 `|||` 视为正文，不会被拆开；群聊拆分超过 3 条时改为一条合并转发消息（仅平台支持时，如 QQ），私聊仍逐条发送；只作用于非流式发送（平台不支持流式、流式已关闭或已退化时），流式生效时仍是单条消息，`|||` 显示为换行；也只发送最终回复，工具轮的中间文本不发送。空行只是普通换行，不再触发拆分。
 
 ### 重试、备用模型与压缩器
 

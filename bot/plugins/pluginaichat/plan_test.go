@@ -54,7 +54,7 @@ func TestPlanGateBlocking(t *testing.T) {
 	if !blocked || result == "" {
 		t.Fatalf("计划模式下 bash 应被阻断并携带提示, blocked=%v result=%q", blocked, result)
 	}
-	for _, name := range []string{"time", "webSearch", "memory_search", "config_get", "todo_write"} {
+	for _, name := range []string{"time", "load_images", "memory_search", "config_get", "todo_write"} {
 		if blocked, _ := call(name); blocked {
 			t.Fatalf("计划模式下只读/中性工具 %s 不应被阻断", name)
 		}
@@ -224,7 +224,7 @@ func TestPlanBlockedToolsAreRealToolNames(t *testing.T) {
 	// 会话级工具（与 getChat/registerScopedTools 的注册来源一致）
 	collect(newMemoryTools(newTestMemoryManager(0), "g:1", ""))
 	collect(newKnowledgeTools(newTestKnowledgeManager(0), "g:1", ""))
-	collect(newClockTools(newClockManager(p, time.Second, 10), clockTargetGroup, "1"))
+	collect(newClockTools(newClockManager(p, time.Second), clockTargetGroup, "1"))
 	collect(newSkillTools(newTestSkillPlugin(t)))
 	collect(newMCPTools(newMCPToolPlugin(t)))
 	collect(newSubagentTools(p, nil, message.FromUint64(1), true))

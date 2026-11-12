@@ -102,6 +102,7 @@ const state = {
     { scope: 'f:qq:10000', name: 'research', desc: '资料检索与整理', members: [{ name: 'searcher' }], created_at: toLocalIso(new Date(now0 - 5400_000)) },
   ],
   knowledge: rebase(seedKnowledgeList).map((x) => ({ ...x, scope: 'g:qq:123456' })),
+  skillDisabled: new Set(),
   opLogs: rebase(seedOpLogs.items),
   consoleLogs: rebase(seedConsoleLogs.items),
   msgLogs: buildMsgLogs(now0),
@@ -161,6 +162,56 @@ setInterval(() => {
   if (state.consoleLogs.length > 300) state.consoleLogs.length = 300
 }, 18_000)
 
+// 消息日志会话键（与后端 msglog.Entry.SessionKey 一致）
+function msgLogSessionKey(log) {
+  if (log.type === 'group' || (log.type === 'notice' && log.group_id)) return 'g:' + log.group_id
+  if (log.type === 'friend' || (log.type === 'notice' && log.user_id)) return 'f:' + log.user_id
+  return 'n:system'
+}
+
+// 会话摘要（与后端 msglog.Session 字段对齐）
+function buildMsgLogSessions() {
+  const map = new Map()
+  for (const log of state.msgLogs) {
+    const key = msgLogSessionKey(log)
+    let s = map.get(key)
+    if (!s) {
+      const kind = key.startsWith('g:') ? 'group' : key.startsWith('f:') ? 'friend' : 'system'
+      s = {
+        key, kind, count: 0, name: '', title: '',
+        group_id: kind === 'group' ? key.slice(2) : '',
+        user_id: kind === 'friend' ? key.slice(2) : '',
+      }
+      map.set(key, s)
+    }
+    s.count++
+    if (!s.last_id) {
+      s.last_id = log.id
+      s.last_time = log.time
+      s.last_text = String(log.text || '').slice(0, 160)
+      s.last_type = log.type
+      s.last_media = log.media && log.media[0] ? log.media[0].kind : ''
+      s.title = log.title || ''
+    }
+    if (!s.name && log.nickname) s.name = log.nickname
+    if (!s.title && log.title) s.title = log.title
+  }
+  return [...map.values()].sort((a, b) => b.last_id - a.last_id)
+}
+
+function paginateMsgLogs(c) {
+  const limit = Math.min(200, Math.max(1, parseInt(c.query.get('limit') || '50', 10) || 50))
+  const session = c.query.get('session')
+  const before = parseInt(c.query.get('before') || '0', 10) || 0
+  const after = parseInt(c.query.get('after') || '0', 10) || 0
+  let list = state.msgLogs
+  if (session) list = list.filter((x) => msgLogSessionKey(x) === session)
+  if (before) list = list.filter((x) => x.id < before)
+  if (after) list = list.filter((x) => x.id > after)
+  const page = list.slice(0, limit)
+  return { items: page, has_more: list.length > limit }
+}
+
 // 通用工具
 
 function paginate(items, query, idOf, compare) {
@@ -182,6 +233,32 @@ const inRange = (timeStr, query) => {
   return true
 }
 const hasKeyword = (item, kw) => !kw || JSON.stringify(item).toLowerCase().includes(kw.toLowerCase())
+
+// Query 日志筛选（列表与导出共用）
+function filterQueryLogs(c) {
+  let list = state.queryLogs
+  const chatType = c.query.get('chat_type')
+  const targetId = c.query.get('target_id')
+  const sender = c.query.get('sender')
+  const kind = c.query.get('kind')
+  if (chatType) list = list.filter((x) => x.chat_type === chatType)
+  if (targetId) list = list.filter((x) => x.target_id === targetId)
+  if (sender) list = list.filter((x) => (x.senders || []).some((s) => String(s).includes(sender)))
+  if (kind) list = list.filter((x) => (x.kind || 'chat') === kind)
+  return list.filter((x) => inRange(x.time, c.query) && hasKeyword({ q: x.query, r: x.reply, e: x.error }, c.query.get('keyword')))
+}
+
+// 任务执行日志筛选（列表与导出共用）
+function filterTaskLogs(c) {
+  let list = state.taskLogs
+  const f = (k, fn) => { const v = c.query.get(k); if (v) list = list.filter(fn(v)) }
+  f('target_type', (v) => (x) => x.target_type === v)
+  f('target_id', (v) => (x) => x.target_id === v)
+  f('task_id', (v) => (x) => x.task_id === v)
+  f('status', (v) => (x) => x.status === v)
+  return list.filter((x) => inRange(x.trigger_time, c.query) && hasKeyword(x, c.query.get('keyword')))
+}
+
 const scopeCounts = (entries) => {
   const map = new Map()
   for (const e of entries) {
@@ -370,7 +447,16 @@ const routes = [
   { m: 'GET', re: /^\/api\/contacts$/, h: (c) => buildContacts(c.query.get('kind') || 'groups') },
 
   // 日志（分页 + 过滤）
-  { m: 'GET', re: /^\/api\/msglogs$/, h: (c) => paginate(state.msgLogs, c.query, (x) => x.id) },
+  { m: 'GET', re: /^\/api\/msglogs$/, h: (c) => paginateMsgLogs(c) },
+  { m: 'GET', re: /^\/api\/msglogs\/sessions$/, h: () => ({ items: buildMsgLogSessions() }) },
+  {
+    m: 'GET', re: /^\/api\/msglogs\/media$/, h: (c) => {
+      const url = c.query.get('url')
+      if (!url) return { status: 400, body: { error: '缺少 url 参数' } }
+      // 演示模式没有后端代理，直接跳转到原始地址（data: URL 由浏览器直接加载）
+      return { redirect: url }
+    },
+  },
   {
     m: 'GET', re: /^\/api\/consolelogs$/, h: (c) => paginate(state.consoleLogs, c.query, (x) => x.id),
   },
@@ -384,30 +470,39 @@ const routes = [
     },
   },
   {
-    m: 'GET', re: /^\/api\/querylogs$/, h: (c) => {
-      let list = state.queryLogs
-      const chatType = c.query.get('chat_type')
-      const targetId = c.query.get('target_id')
-      const sender = c.query.get('sender')
-      const kind = c.query.get('kind')
-      if (chatType) list = list.filter((x) => x.chat_type === chatType)
-      if (targetId) list = list.filter((x) => x.target_id === targetId)
-      if (sender) list = list.filter((x) => (x.senders || []).some((s) => String(s).includes(sender)))
-      if (kind) list = list.filter((x) => (x.kind || 'chat') === kind)
-      list = list.filter((x) => inRange(x.time, c.query) && hasKeyword({ q: x.query, r: x.reply, e: x.error }, c.query.get('keyword')))
-      return paginate(list, c.query, (x) => x.id)
+    m: 'GET', re: /^\/api\/querylogs$/, h: (c) => paginate(filterQueryLogs(c), c.query, (x) => x.id),
+  },
+  {
+    m: 'GET', re: /^\/api\/querylogs\/export$/, h: (c) => {
+      const items = filterQueryLogs(c)
+      return { exported_at: new Date().toISOString(), total: items.length, items }
     },
   },
   {
-    m: 'GET', re: /^\/api\/tasklogs$/, h: (c) => {
-      let list = state.taskLogs
-      const f = (k, fn) => { const v = c.query.get(k); if (v) list = list.filter(fn(v)) }
-      f('target_type', (v) => (x) => x.target_type === v)
-      f('target_id', (v) => (x) => x.target_id === v)
-      f('task_id', (v) => (x) => x.task_id === v)
-      f('status', (v) => (x) => x.status === v)
-      list = list.filter((x) => inRange(x.trigger_time, c.query) && hasKeyword(x, c.query.get('keyword')))
-      return paginate(list, c.query, (x) => x.id)
+    m: 'DELETE', re: /^\/api\/querylogs$/, h: (c) => {
+      const drop = new Set(filterQueryLogs(c).map((x) => x.id))
+      const before = state.queryLogs.length
+      state.queryLogs = state.queryLogs.filter((x) => !drop.has(x.id))
+      addOpLog('system', 'query_log_clear', `面板清除 Query 日志 ${before - state.queryLogs.length} 条`)
+      return { ok: true, removed: before - state.queryLogs.length }
+    },
+  },
+  {
+    m: 'GET', re: /^\/api\/tasklogs$/, h: (c) => paginate(filterTaskLogs(c), c.query, (x) => x.id),
+  },
+  {
+    m: 'GET', re: /^\/api\/tasklogs\/export$/, h: (c) => {
+      const items = filterTaskLogs(c)
+      return { exported_at: new Date().toISOString(), total: items.length, items }
+    },
+  },
+  {
+    m: 'DELETE', re: /^\/api\/tasklogs$/, h: (c) => {
+      const drop = new Set(filterTaskLogs(c).map((x) => x.id))
+      const before = state.taskLogs.length
+      state.taskLogs = state.taskLogs.filter((x) => !drop.has(x.id))
+      addOpLog('system', 'task_log_clear', `面板清除定时任务执行日志 ${before - state.taskLogs.length} 条`)
+      return { ok: true, removed: before - state.taskLogs.length }
     },
   },
 
@@ -472,10 +567,22 @@ const routes = [
   },
 
   // 技能
-  { m: 'GET', re: /^\/api\/skills$/, h: () => buildSkills() },
-  { m: 'GET', re: /^\/api\/skills\/([^/]+)$/, h: (c) => buildSkillDetail(decodeURIComponent(c.params[0])) || { status: 404, body: { error: '技能不存在' } } },
+  { m: 'GET', re: /^\/api\/skills$/, h: () => buildSkills(state.skillDisabled) },
+  { m: 'GET', re: /^\/api\/skills\/([^/]+)$/, h: (c) => buildSkillDetail(decodeURIComponent(c.params[0]), state.skillDisabled) || { status: 404, body: { error: '技能不存在' } } },
   { m: 'POST', re: /^\/api\/skills$/, h: () => ({ ok: true }) },
-  { m: 'DELETE', re: /^\/api\/skills\/([^/]+)$/, h: () => ({ ok: true }) },
+  {
+    m: 'POST', re: /^\/api\/skills\/([^/]+)\/toggle$/, h: (c) => {
+      const name = decodeURIComponent(c.params[0])
+      const builtin = ['web'].includes(name)
+      if (builtin) return { status: 400, body: { error: '内置 skill 不能禁用' } }
+      const enabled = !!(c.body && c.body.enabled)
+      if (enabled) state.skillDisabled.delete(name)
+      else state.skillDisabled.add(name)
+      addOpLog('skill', 'skill_toggle', `面板${enabled ? '启用' : '禁用'} skill: ${name}`)
+      return { ok: true }
+    },
+  },
+  { m: 'DELETE', re: /^\/api\/skills\/([^/]+)$/, h: (c) => { state.skillDisabled.delete(decodeURIComponent(c.params[0])); return { ok: true } } },
 
   // 记忆
   { m: 'GET', re: /^\/api\/memory\/scopes$/, h: () => scopeCounts(state.memories) },

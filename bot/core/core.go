@@ -508,23 +508,47 @@ func (ania *AniaBot) Run() {
 func (ania *AniaBot) startAdminPanel() {
 	// 查找提供定时任务执行日志的插件（如 AI 对话插件的 clock 功能）
 	var taskLogFn func(f tasklog.Filter) []tasklog.Entry
+	var taskLogStatsFn func(f tasklog.Filter) []tasklog.StatRow
+	var taskLogClearFn func(f tasklog.Filter) int
 	var clockSrc adminpanel.ClockTaskSource
 	var msgLogFn func(limit int, beforeID uint64) []msglog.Entry
+	var msgLogSessionsFn func() []msglog.Session
+	var msgLogSessionFn func(session string, limit int, beforeID, afterID uint64) []msglog.Entry
+	var msgLogMediaFn func(entryID uint64, index int) (string, bool)
+	var msgLogDeleteFn func(id uint64) bool
+	var msgLogSessionDeleteFn func(session string) int
 	var skillSrc adminpanel.SkillSource
 	var memorySrc adminpanel.MemorySource
 	var kbSrc adminpanel.KnowledgeBaseSource
 	var teamSrc adminpanel.TeamSource
 	var quotaSrc adminpanel.QuotaSource
 	var queryLogFn func(f querylog.Filter) []querylog.Entry
+	var queryLogStatsFn func(f querylog.Filter) []querylog.StatRow
+	var queryLogClearFn func(f querylog.Filter) int
 	for _, p := range ania.plugins {
 		if src, ok := p.(adminpanel.TaskLogSource); ok {
 			taskLogFn = src.TaskLogQuery
+			taskLogStatsFn = src.TaskLogStats
+			taskLogClearFn = src.TaskLogClear
 		}
 		if src, ok := p.(adminpanel.ClockTaskSource); ok {
 			clockSrc = src
 		}
 		if src, ok := p.(adminpanel.MsgLogSource); ok {
 			msgLogFn = src.MsgLogPage
+		}
+		if src, ok := p.(adminpanel.MsgLogSessionSource); ok {
+			msgLogSessionsFn = src.MsgLogSessions
+			msgLogSessionFn = src.MsgLogSessionPage
+		}
+		if src, ok := p.(adminpanel.MsgLogMediaSource); ok {
+			msgLogMediaFn = src.MsgLogMediaURL
+		}
+		if src, ok := p.(adminpanel.MsgLogDeleteSource); ok {
+			msgLogDeleteFn = src.MsgLogDelete
+		}
+		if src, ok := p.(adminpanel.MsgLogSessionDeleteSource); ok {
+			msgLogSessionDeleteFn = src.MsgLogDeleteSession
 		}
 		if src, ok := p.(adminpanel.SkillSource); ok {
 			skillSrc = src
@@ -543,6 +567,8 @@ func (ania *AniaBot) startAdminPanel() {
 		}
 		if src, ok := p.(adminpanel.QueryLogSource); ok {
 			queryLogFn = src.QueryLogRecent
+			queryLogStatsFn = src.QueryLogStats
+			queryLogClearFn = src.QueryLogClear
 		}
 		if taskLogFn != nil && clockSrc != nil && msgLogFn != nil && skillSrc != nil && memorySrc != nil && kbSrc != nil && teamSrc != nil && quotaSrc != nil && queryLogFn != nil {
 			break
@@ -607,20 +633,29 @@ func (ania *AniaBot) startAdminPanel() {
 			}
 			return strings.Join(parts, " ")
 		},
-		AdapterStatuses: ania.AdapterStatuses,
-		TaskLogs:        taskLogFn,
-		Clocks:          clockSrc,
-		MsgLogs:         msgLogFn,
-		Skills:          skillSrc,
-		Memories:        memorySrc,
-		Knowledge:       kbSrc,
-		Teams:           teamSrc,
-		Quota:           quotaSrc,
-		QueryLogs:       queryLogFn,
-		ConsoleLogs:     consollog.Page,
-		QRLogins:        qrLogins,
-		Marketplace:     marketplace.New(ania.configStore, Logger().WithGroup("Marketplace"), marketplace.WithUnloader(ania)),
-		Logger:          Logger().WithGroup("AdminPanel"),
+		AdapterStatuses:     ania.AdapterStatuses,
+		TaskLogs:            taskLogFn,
+		TaskLogsStats:       taskLogStatsFn,
+		TaskLogsClear:       taskLogClearFn,
+		Clocks:              clockSrc,
+		MsgLogs:             msgLogFn,
+		MsgLogSessions:      msgLogSessionsFn,
+		MsgLogSessionPage:   msgLogSessionFn,
+		MsgLogMedia:         msgLogMediaFn,
+		MsgLogDelete:        msgLogDeleteFn,
+		MsgLogDeleteSession: msgLogSessionDeleteFn,
+		Skills:              skillSrc,
+		Memories:            memorySrc,
+		Knowledge:           kbSrc,
+		Teams:               teamSrc,
+		Quota:               quotaSrc,
+		QueryLogs:           queryLogFn,
+		QueryLogsStats:      queryLogStatsFn,
+		QueryLogsClear:      queryLogClearFn,
+		ConsoleLogs:         consollog.Page,
+		QRLogins:            qrLogins,
+		Marketplace:         marketplace.New(ania.configStore, Logger().WithGroup("Marketplace"), marketplace.WithUnloader(ania)),
+		Logger:              Logger().WithGroup("AdminPanel"),
 	})
 	go srv.Run()
 }
@@ -860,6 +895,27 @@ func (ania *AniaBot) GetMsgDetail(msgId message.QID) (*message.Message, bool) {
 		return nil, false
 	}
 	return a.GetMsgDetail(msgId)
+}
+
+// RefreshMediaURL 实现 bot.MediaRefresher：媒体地址过期后按会话 ID 前缀
+// 路由到对应适配器，由适配器向平台重新申请地址（QQ 的 rkey 续期等）。
+// 群消息用 groupId 路由，私聊用 userId；两者都为空时无法定位协议端。
+func (ania *AniaBot) RefreshMediaURL(kind, fileId, groupId, userId string) (string, bool) {
+	var a adapter.Adapter
+	if groupId != "" {
+		a = ania.route(message.QID(groupId))
+	}
+	if a == nil && userId != "" {
+		a = ania.route(message.QID(userId))
+	}
+	if a == nil {
+		return "", false
+	}
+	mr, ok := a.(adapter.MediaRefresherExt)
+	if !ok {
+		return "", false
+	}
+	return mr.RefreshMediaURL(kind, fileId, groupId, userId)
 }
 
 // GetGroupDetail 获取群聊详情（按群 ID 前缀路由到对应平台适配器）。

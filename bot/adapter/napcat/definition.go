@@ -99,8 +99,8 @@ func (q *qqBot) GetGroupList() (*[]message.GroupInfo, bool) {
 	return q.qq.GetGroupList()
 }
 
-func (q *qqBot) GetAIChatacter() (*[]message.AIChatacter, bool) {
-	return q.qq.GetAIChatacter()
+func (q *qqBot) GetAICharacters(groupId message.QID) (*[]message.AICharacterGroup, bool) {
+	return q.qq.GetAICharacters(groupId)
 }
 
 func (q *qqBot) GetPrivateFileURL(userId message.QID, fileId string) (string, bool) {
@@ -109,6 +109,14 @@ func (q *qqBot) GetPrivateFileURL(userId message.QID, fileId string) (string, bo
 
 func (q *qqBot) GetNCrkey() ([]message.NCrkey, bool) {
 	return q.qq.GetNCrkey()
+}
+
+// RefreshMediaURL 实现 bot.MediaRefresher：把媒体地址续期能力透传给来源适配器。
+func (q *qqBot) RefreshMediaURL(kind, fileId, groupId, userId string) (string, bool) {
+	if mr, ok := q.qq.(adapter.MediaRefresherExt); ok {
+		return mr.RefreshMediaURL(kind, fileId, groupId, userId)
+	}
+	return "", false
 }
 
 // AITools 实现 aitool.Provider：向 AI 对话会话注入 QQ 平台专属工具

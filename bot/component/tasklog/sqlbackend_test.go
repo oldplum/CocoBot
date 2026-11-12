@@ -3,6 +3,7 @@ package tasklog
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -21,7 +22,7 @@ func (s *sqlFakeStore) SQLDB() *sql.DB                 { return s.db }
 func (s *sqlFakeStore) SQLDialect() storage.SQLDialect { return storage.SQLDialectSQLite }
 
 // newSQLLogger 构造走 SQL 后端的 Logger（sqlite :memory:，单连接）。
-func newSQLLogger(t *testing.T, maxEntries int) (*Logger, *sql.DB) {
+func newSQLLogger(t *testing.T) (*Logger, *sql.DB) {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
@@ -29,11 +30,11 @@ func newSQLLogger(t *testing.T, maxEntries int) (*Logger, *sql.DB) {
 	}
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close() })
-	return New(&sqlFakeStore{fakeStore: newFakeStore(), db: db}, maxEntries, nil), db
+	return New(&sqlFakeStore{fakeStore: newFakeStore(), db: db}, nil), db
 }
 
 func TestSQLBackendRecordRecent(t *testing.T) {
-	l, _ := newSQLLogger(t, 3)
+	l, _ := newSQLLogger(t)
 
 	l.Record(Entry{TaskID: "t1", Status: StatusSuccess, TaskTitle: "A"})
 	l.Record(Entry{TaskID: "t2", Status: StatusTimeout, TaskTitle: "B"})
@@ -75,17 +76,17 @@ func TestSQLBackendRecordRecent(t *testing.T) {
 	t.Fatalf("entry %s not found after update", e3.ID)
 }
 
-func TestSQLBackendRollingCap(t *testing.T) {
-	l, db := newSQLLogger(t, 2)
+func TestSQLBackendNoEviction(t *testing.T) {
+	l, db := newSQLLogger(t)
 	for range 5 {
 		l.Record(Entry{TaskID: "t", Status: StatusSuccess})
 	}
-	if got := l.Recent(0); len(got) != 2 {
-		t.Fatalf("want capped to 2, got %d", len(got))
+	if got := l.Recent(0); len(got) != 5 {
+		t.Fatalf("日志应全部保留，实际 %d 条", len(got))
 	}
 	var n int
-	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM ania_task_log`).Scan(&n); err != nil || n != 2 {
-		t.Fatalf("表中行数 = %d,%v want 2", n, err)
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM ania_task_log`).Scan(&n); err != nil || n != 5 {
+		t.Fatalf("表中行数 = %d,%v want 5", n, err)
 	}
 }
 
@@ -98,10 +99,10 @@ func TestSQLBackendSeqAcrossReload(t *testing.T) {
 	defer db.Close()
 
 	store := &sqlFakeStore{fakeStore: newFakeStore(), db: db}
-	l1 := New(store, 10, nil)
+	l1 := New(store, nil)
 	e1 := l1.Record(Entry{TaskID: "t1"})
 
-	l2 := New(store, 10, nil)
+	l2 := New(store, nil)
 	e2 := l2.Record(Entry{TaskID: "t2"})
 	if e2.ID == e1.ID {
 		t.Fatalf("重启后 ID 冲突: %q", e2.ID)
@@ -112,7 +113,7 @@ func TestSQLBackendSeqAcrossReload(t *testing.T) {
 }
 
 func TestSQLBackendQueryAndRecentFor(t *testing.T) {
-	l, _ := newSQLLogger(t, 100)
+	l, _ := newSQLLogger(t)
 	base := time.Date(2026, 7, 26, 12, 0, 0, 0, time.Local)
 	l.Record(Entry{TriggerTime: base.Add(-2 * time.Hour), TaskID: "a", TaskTitle: "每日新闻推送", TargetType: "group", TargetID: "1", Status: StatusSuccess})
 	l.Record(Entry{TriggerTime: base.Add(-1 * time.Hour), TaskID: "b", TaskTitle: "周报总结", TargetType: "group", TargetID: "1", Status: StatusTimeout})
@@ -151,7 +152,7 @@ func TestSQLBackendQueryAndRecentFor(t *testing.T) {
 }
 
 func TestSQLBackendMarkRunningInterrupted(t *testing.T) {
-	l, _ := newSQLLogger(t, 10)
+	l, _ := newSQLLogger(t)
 	now := time.Now()
 	l.Record(Entry{TaskID: "t1", Status: StatusRunning, TriggerTime: now.Add(-time.Minute)})
 	l.Record(Entry{TaskID: "t2", Status: StatusSuccess, TriggerTime: now.Add(-3 * time.Minute)})
@@ -172,7 +173,7 @@ func TestSQLBackendMarkRunningInterrupted(t *testing.T) {
 }
 
 func TestSQLBackendQueryBeforeCursor(t *testing.T) {
-	l, _ := newSQLLogger(t, 10)
+	l, _ := newSQLLogger(t)
 	for _, title := range []string{"a", "b", "c", "d", "e"} {
 		l.Record(Entry{TaskID: "t", Status: StatusSuccess, TaskTitle: title})
 	}
@@ -184,5 +185,89 @@ func TestSQLBackendQueryBeforeCursor(t *testing.T) {
 	page := l.Query(Filter{Before: cursor, Limit: 10})
 	if len(page) != 2 || page[0].ID != all[3].ID || page[1].ID != all[4].ID {
 		t.Fatalf("cursor page wrong: %+v", page)
+	}
+}
+
+// TestSQLBackendClear 按条件清除与清空全部。
+func TestSQLBackendClear(t *testing.T) {
+	l, db := newSQLLogger(t)
+	l.Record(Entry{TaskID: "a", Status: StatusSuccess, TaskTitle: "A"})
+	l.Record(Entry{TaskID: "b", Status: StatusError, TaskTitle: "B"})
+	l.Record(Entry{TaskID: "a", Status: StatusSuccess, TaskTitle: "C"})
+
+	if n := l.Clear(Filter{TaskID: "a"}); n != 2 {
+		t.Fatalf("按任务清除应删除 2 条, got %d", n)
+	}
+	if got := l.Recent(0); len(got) != 1 || got[0].TaskID != "b" {
+		t.Fatalf("清除后剩余记录异常: %+v", got)
+	}
+	if n := l.Clear(Filter{}); n != 1 {
+		t.Fatalf("清空全部应删除 1 条, got %d", n)
+	}
+	var count int
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM ania_task_log`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("表中行数 = %d,%v want 0", count, err)
+	}
+}
+
+// TestSQLBackendStats 统计行从冗余统计列读取，覆盖全部记录并支持筛选。
+func TestSQLBackendStats(t *testing.T) {
+	l, _ := newSQLLogger(t)
+	base := time.Now()
+	e1 := l.Record(Entry{TaskID: "a", TargetType: "group", TargetID: "1", TriggerTime: base.Add(-time.Hour)})
+	l.Update(e1.ID, func(e *Entry) {
+		e.Status = StatusSuccess
+		e.Iterations = 2
+		e.PromptTokens, e.CompletionTokens, e.TotalTokens, e.CachedTokens = 200, 30, 230, 80
+	})
+	l.Record(Entry{TaskID: "b", TargetType: "friend", TargetID: "2", TriggerTime: base,
+		Status: StatusTimeout, Iterations: 1, TotalTokens: 60})
+
+	rows := l.Stats(Filter{})
+	if len(rows) != 2 {
+		t.Fatalf("应返回全部 2 条统计行, got %d", len(rows))
+	}
+	if rows[0].TargetID != "1" || rows[0].TotalTokens != 230 || rows[0].Iterations != 2 || rows[0].Status != StatusSuccess {
+		t.Fatalf("统计字段异常: %+v", rows[0])
+	}
+	if got := l.Stats(Filter{TargetType: "friend"}); len(got) != 1 || got[0].TargetID != "2" {
+		t.Fatalf("按目标类型筛选异常: %+v", got)
+	}
+	if got := l.Stats(Filter{Start: base.Add(-30 * time.Minute)}); len(got) != 1 || got[0].TargetID != "2" {
+		t.Fatalf("按时间筛选异常: %+v", got)
+	}
+}
+
+// TestSQLBackendStatsColumnsBackfill 旧库缺少统计列时自动补列，并从 payload 回填。
+func TestSQLBackendStatsColumnsBackfill(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { db.Close() })
+
+	// 升级前的表结构（没有统计列）
+	if _, err := db.Exec(`CREATE TABLE ania_task_log (seq INTEGER NOT NULL PRIMARY KEY, task_id TEXT NOT NULL, title TEXT NOT NULL, target_type TEXT NOT NULL, target_id TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL, payload TEXT NOT NULL)`); err != nil {
+		t.Fatalf("建旧表失败: %v", err)
+	}
+	old := Entry{ID: "1", TaskID: "t1", TaskTitle: "旧任务", TargetType: "group", TargetID: "1",
+		TriggerTime: time.Now(), Status: StatusSuccess, Iterations: 2,
+		PromptTokens: 300, CompletionTokens: 30, TotalTokens: 330, CachedTokens: 100}
+	payload, _ := json.Marshal(old)
+	if _, err := db.Exec(`INSERT INTO ania_task_log (seq, task_id, title, target_type, target_id, status, created_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		1, old.TaskID, old.TaskTitle, old.TargetType, old.TargetID, string(old.Status), old.TriggerTime.Unix(), string(payload)); err != nil {
+		t.Fatalf("写入旧记录失败: %v", err)
+	}
+
+	l := New(&sqlFakeStore{fakeStore: newFakeStore(), db: db}, nil)
+	rows := l.Stats(Filter{})
+	if len(rows) != 1 || rows[0].TotalTokens != 330 || rows[0].Iterations != 2 || rows[0].CachedTokens != 100 {
+		t.Fatalf("旧日志统计列回填异常: %+v", rows)
+	}
+	l.Record(Entry{TaskID: "t2", Status: StatusSuccess, TotalTokens: 20})
+	rows = l.Stats(Filter{})
+	if len(rows) != 2 || rows[1].TotalTokens != 20 {
+		t.Fatalf("补列后新记录统计异常: %+v", rows)
 	}
 }
