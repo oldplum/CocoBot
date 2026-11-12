@@ -26,7 +26,7 @@
         <div>
           <div class="text-[15px] font-extrabold leading-tight tracking-[0.02em] text-[#5f4423] flex items-center gap-1.5">
             <span>COCOBOT</span>
-            <span class="text-[9px] px-1.5 py-0.5 bg-black/5 text-slate-600 rounded font-mono font-normal tracking-normal">{{ auth.cocobotVersion || 'v1.5.0' }}</span>
+            <span class="text-[9px] px-1.5 py-0.5 bg-black/5 text-slate-600 rounded font-mono font-normal tracking-normal">{{ auth.cocobotVersion || 'v1.5.1' }}</span>
           </div>
           <div class="text-[10px] text-slate-500 leading-tight tracking-[0.12em] mt-0.5">CONSOLE · 控制面板</div>
           <div class="text-[9px] text-slate-400 leading-tight tracking-wider mt-0.5">Based on AniaBot {{ auth.frameworkVersion || 'v4.8.1' }}</div>

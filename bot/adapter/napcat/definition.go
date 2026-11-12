@@ -13,16 +13,16 @@ import (
 // napcatConfigFields NapCat 平台配置字段（面板动态渲染）。
 // 与历史 viper 键一一对应，确保存量配置迁移后语义不变。
 var napcatConfigFields = []pluginconfig.Field{
-	{Key: "bot.platform.napcat.enable", Label: "启用 QQ(NapCat) 平台", Type: "bool", Group: "平台适配器", Help: "是否启用 QQ 平台；关闭后 Bot 将不连接 NapCat", Default: true},
-	{Key: "bot.adapter.mode", Label: "连接模式", Type: "select", Options: []string{"ws", "http"}, Group: "NapCat 适配器", Help: "ws（WebSocket，推荐）或 http（需同时配置下方「本地监听端口」和「NapCat HTTP 地址」），重启后生效", Default: "ws"},
-	{Key: "bot.adapter.token", Label: "Token", Type: "password", Group: "NapCat 适配器", Sensitive: true, Help: "NapCat 侧设置了 token 时填写"},
-	{Key: "bot.adapter.ws.address", Label: "WS 地址", Type: "string", Group: "NapCat 适配器", Help: "NapCat WebSocket Server 地址", Default: "ws://localhost:4455"},
-	{Key: "bot.adapter.ws.worker_count", Label: "处理线程数", Type: "int", Group: "NapCat 适配器", Help: "0 为自动调整", Default: 0},
-	{Key: "bot.adapter.ws.worker_queue_size", Label: "消息队列大小", Type: "int", Group: "NapCat 适配器", Help: "超出限制的消息将被丢弃", Default: 1024},
-	{Key: "bot.adapter.http.listen_port", Label: "本地监听端口", Type: "int", Group: "NapCat 适配器", Help: "HTTP 模式下 Bot 接收 NapCat 事件上报的本地端口；NapCat 侧需添加「HTTP 客户端」，上报地址填 http://<Bot 主机 IP>:<此端口>", Default: 6679},
-	{Key: "bot.adapter.http.target_url", Label: "NapCat HTTP 地址", Type: "string", Group: "NapCat 适配器", Help: "HTTP 模式下 NapCat 的「HTTP 服务器」地址，Bot 通过它调用 NapCat 接口（发消息等）", Default: "http://localhost:6680"},
-	{Key: "bot.adapter.request_timeout_sec", Label: "请求超时(秒)", Type: "int", Group: "NapCat 适配器", Help: "等待 NapCat 回包的时长；超时按失败处理（实际可能仍在执行）；0 或负数回退默认 10 秒，重启后生效", Default: 10},
-	{Key: "bot.adapter.upload_timeout_sec", Label: "上传超时(秒)", Type: "int", Group: "NapCat 适配器", Help: "发送文件/视频/语音等需先上传内容的消息时的等待时长，大文件或慢网络下可调大；0 或负数回退默认 120 秒，重启后生效", Default: 120},
+	{Key: "bot.platform.napcat.enable", Label: "启用 QQ(OneBot v11) 平台", Type: "bool", Group: "平台适配器", Help: "是否启用 QQ 平台（OneBot v11 规范，支持 NapCat 及同类协议端）", Default: true},
+	{Key: "bot.adapter.mode", Label: "连接模式", Type: "select", Options: []string{"ws", "http"}, Group: "OneBot v11(NapCat) 适配器", Help: "ws（WebSocket，推荐）或 http（需同时配置下方「本地监听端口」和「NapCat HTTP 地址」），重启后生效", Default: "ws"},
+	{Key: "bot.adapter.token", Label: "Token", Type: "password", Group: "OneBot v11(NapCat) 适配器", Sensitive: true, Help: "协议端侧设置了 token 时填写"},
+	{Key: "bot.adapter.ws.address", Label: "WS 地址", Type: "string", Group: "OneBot v11(NapCat) 适配器", Help: "OneBot v11 / NapCat WebSocket Server 地址", Default: "ws://localhost:4455"},
+	{Key: "bot.adapter.ws.worker_count", Label: "处理线程数", Type: "int", Group: "OneBot v11(NapCat) 适配器", Help: "0 为自动调整", Default: 0},
+	{Key: "bot.adapter.ws.worker_queue_size", Label: "消息队列大小", Type: "int", Group: "OneBot v11(NapCat) 适配器", Help: "超出限制的消息将被丢弃", Default: 1024},
+	{Key: "bot.adapter.http.listen_port", Label: "本地监听端口", Type: "int", Group: "OneBot v11(NapCat) 适配器", Help: "HTTP 模式下 Bot 接收 NapCat 事件上报的本地端口；NapCat 侧需添加「HTTP 客户端」，上报地址填 http://<Bot 主机 IP>:<此端口>", Default: 6679},
+	{Key: "bot.adapter.http.target_url", Label: "NapCat HTTP 地址", Type: "string", Group: "OneBot v11(NapCat) 适配器", Help: "HTTP 模式下 NapCat 的「HTTP 服务器」地址，Bot 通过它调用 NapCat 接口（发消息等）", Default: "http://localhost:6680"},
+	{Key: "bot.adapter.request_timeout_sec", Label: "请求超时(秒)", Type: "int", Group: "OneBot v11(NapCat) 适配器", Help: "等待 NapCat 回包的时长；超时按失败处理（实际可能仍在执行）；0 或负数回退默认 10 秒，重启后生效", Default: 10},
+	{Key: "bot.adapter.upload_timeout_sec", Label: "上传超时(秒)", Type: "int", Group: "OneBot v11(NapCat) 适配器", Help: "发送文件/视频/语音等需先上传内容的消息时的等待时长，大文件或慢网络下可调大；0 或负数回退默认 120 秒，重启后生效", Default: 120},
 }
 
 // init 注册 NapCat（QQ 平台）适配器定义与 bot 外观包装器。

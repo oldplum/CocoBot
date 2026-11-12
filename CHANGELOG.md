@@ -11,6 +11,12 @@
 
 ## [Unreleased]
 
+## [v1.5.1] - 2026-11-12
+
+### 📖 协议端与接入指引优化
+- **QQ 接入说明与 NapCat 停更指引**：在 README、快速开始文档、设置向导与后台配置中增加对 OneBot v11 协议标准解耦的说明；明确 NapCat 官方停更归档情况（已有实例不受影响），推荐新部署使用内置的原生 Luckylilia（LLBot）或 QQ 官方开放平台。
+- **向导与配置项文案重构**：将「QQ(NapCat)」标签与说明全面优化为「QQ（OneBot v11 / NapCat 兼容）」，明确提示支持任何标准的 OneBot v11 协议端。
+
 ## [v1.5.0] - 2026-11-12
 
 ### 🔄 合入上游更新（Sync with Upstream AniaBot v4.8.1）

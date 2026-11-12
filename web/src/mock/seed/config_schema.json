@@ -310,10 +310,10 @@
   },
   {
     "key": "bot.platform.napcat.enable",
-    "label": "启用 QQ(NapCat) 平台",
+    "label": "启用 QQ(OneBot v11) 平台",
     "type": "bool",
     "group": "平台适配器",
-    "help": "是否启用 QQ 平台；关闭后 Bot 将不连接 NapCat",
+    "help": "是否启用 QQ 平台（OneBot v11 规范，支持 NapCat 及同类协议端）",
     "default": true
   },
   {
@@ -324,7 +324,7 @@
       "ws",
       "http"
     ],
-    "group": "NapCat 适配器",
+    "group": "OneBot v11(NapCat) 适配器",
     "help": "ws（WebSocket，推荐）或 http（需同时配置下方「本地监听端口」和「NapCat HTTP 地址」），重启后生效",
     "default": "ws"
   },
@@ -332,7 +332,7 @@
     "key": "bot.adapter.token",
     "label": "Token",
     "type": "password",
-    "group": "NapCat 适配器",
+    "group": "OneBot v11(NapCat) 适配器",
     "help": "NapCat 侧设置了 token 时填写",
     "sensitive": true
   },
@@ -340,7 +340,7 @@
     "key": "bot.adapter.ws.address",
     "label": "WS 地址",
     "type": "string",
-    "group": "NapCat 适配器",
+    "group": "OneBot v11(NapCat) 适配器",
     "help": "NapCat WebSocket Server 地址",
     "default": "ws://localhost:4455"
   },
@@ -348,7 +348,7 @@
     "key": "bot.adapter.ws.worker_count",
     "label": "处理线程数",
     "type": "int",
-    "group": "NapCat 适配器",
+    "group": "OneBot v11(NapCat) 适配器",
     "help": "0 为自动调整",
     "default": 0
   },
@@ -356,7 +356,7 @@
     "key": "bot.adapter.ws.worker_queue_size",
     "label": "消息队列大小",
     "type": "int",
-    "group": "NapCat 适配器",
+    "group": "OneBot v11(NapCat) 适配器",
     "help": "超出限制的消息将被丢弃",
     "default": 1024
   },
@@ -364,7 +364,7 @@
     "key": "bot.adapter.http.listen_port",
     "label": "本地监听端口",
     "type": "int",
-    "group": "NapCat 适配器",
+    "group": "OneBot v11(NapCat) 适配器",
     "help": "HTTP 模式下 Bot 接收 NapCat 事件上报的本地端口；NapCat 侧需添加「HTTP 客户端」，上报地址填 http://<Bot 主机 IP>:<此端口>",
     "default": 6679
   },
@@ -372,7 +372,7 @@
     "key": "bot.adapter.http.target_url",
     "label": "NapCat HTTP 地址",
     "type": "string",
-    "group": "NapCat 适配器",
+    "group": "OneBot v11(NapCat) 适配器",
     "help": "HTTP 模式下 NapCat 的「HTTP 服务器」地址，Bot 通过它调用 NapCat 接口（发消息等）",
     "default": "http://localhost:6680"
   },

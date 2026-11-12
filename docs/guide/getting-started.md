@@ -19,9 +19,19 @@
 默认缓存驱动为 `memory`（零依赖，重启清空）。在面板「配置管理」页将 `bot.store.cache.driver` 改为 `redis` 并填写地址即可，多实例部署时建议切换。
 :::
 
-## 第一步：部署 NapCat
+## 第一步：部署 QQ 协议端（OneBot v11）
 
-AniaBot 不直接实现 QQ 协议，而是通过 [NapCat](https://napneko.github.io/) 连接 QQ。请先按照 NapCat 官方文档完成部署并登录你的机器人 QQ 号，然后开放网络接口（二选一）：
+AniaBot 采用通用的 **OneBot v11** 协议规范接入 QQ，**不强绑定单一软件**：
+
+::: tip 关于 NapCat 与替代协议端
+原 [NapCat](https://napneko.github.io/) 官方项目已宣布停止维护并归档，**已有部署实例可长期继续稳定运行**。
+新接入可选用：
+1. **[Luckylilia（LLBot）](https://api.luckylillia.com/llms.txt)**：框架原生内置适配支持，同样基于 OneBot v11；
+2. **QQ 官方开放平台**：框架原生支持 `qqofficial` 适配器（API v2），无需运行第三方协议端；
+3. **NapCat 社区镜像**：选用社区归档维护的 Docker 镜像。
+:::
+
+若使用 OneBot v11 协议端（如 NapCat / LLBot），部署并登录机器人 QQ 后，开放网络接口（二选一）：
 
 - **WebSocket 服务端**：端口如 `4455`（推荐，事件推送更及时）
 - **HTTP**：开放 HTTP 服务端（如 `6680`）并配置 HTTP 客户端上报到 AniaBot 的监听地址

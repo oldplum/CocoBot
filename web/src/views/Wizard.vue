@@ -41,8 +41,8 @@
             <label class="flex items-center gap-2.5 cursor-pointer select-none">
               <Switch v-model="form.enableNapcat" />
               <span class="text-sm font-medium text-slate-700">
-                QQ（NapCat）
-                <span class="text-xs text-slate-400 font-normal">· OneBot v11 协议端，默认启用</span>
+                QQ（OneBot v11 / NapCat 兼容）
+                <span class="text-xs text-slate-400 font-normal">· 通用 OneBot v11 标准接口</span>
               </span>
             </label>
             <template v-if="form.enableNapcat">
@@ -53,13 +53,13 @@
               <div v-if="form.mode === 'ws'">
                 <label class="block text-xs font-medium text-slate-600 mb-1.5">WebSocket 地址</label>
                 <Input v-model="form.wsAddress" placeholder="ws://localhost:4455" />
-                <p class="text-xs text-slate-400 mt-1.5">NapCat 的 WebSocket 服务端地址；Docker 部署时把 localhost 换成内网 IP</p>
+                <p class="text-xs text-slate-400 mt-1.5">OneBot v11 / NapCat 服务端地址；Docker 部署时将 localhost 换成内网 IP</p>
               </div>
               <template v-else>
                 <div>
                   <label class="block text-xs font-medium text-slate-600 mb-1.5">HTTP 目标地址</label>
                   <Input v-model="form.httpTargetUrl" placeholder="http://localhost:6680" />
-                  <p class="text-xs text-slate-400 mt-1.5">NapCat 开放的 HTTP 调用地址；Docker 部署时把 localhost 换成内网 IP</p>
+                  <p class="text-xs text-slate-400 mt-1.5">OneBot v11 / NapCat 开放的 HTTP 接口地址；Docker 部署时将 localhost 换成内网 IP</p>
                 </div>
                 <div>
                   <label class="block text-xs font-medium text-slate-600 mb-1.5">HTTP 监听端口</label>
@@ -69,12 +69,12 @@
                     placeholder="6679"
                     @update:modelValue="v => (form.httpListenPort = v === '' ? '' : Number(v))"
                   />
-                  <p class="text-xs text-slate-400 mt-1.5">本机端口，NapCat 的 HTTP Client 向此端口上报事件</p>
+                  <p class="text-xs text-slate-400 mt-1.5">本机监听端口，协议端的 HTTP Client 向此端口上报事件</p>
                 </div>
               </template>
               <div>
                 <label class="block text-xs font-medium text-slate-600 mb-1.5">Access Token（可选）</label>
-                <Input v-model="form.token" type="password" placeholder="NapCat 端设置了 token 时填写" />
+                <Input v-model="form.token" type="password" placeholder="协议端侧设置了 token 时填写" />
               </div>
             </template>
           </Card>
@@ -85,7 +85,7 @@
               <Switch v-model="form.enableLuckylilia" />
               <span class="text-sm font-medium text-slate-700">
                 QQ（Luckylilia / LLBot）
-                <span class="text-xs text-slate-400 font-normal">· OneBot v11 协议端，可与 NapCat 并存（第二个 QQ 账号）</span>
+                <span class="text-xs text-slate-400 font-normal">· 内置 OneBot v11 协议端替代方案，新接入推荐</span>
               </span>
             </label>
             <template v-if="form.enableLuckylilia">

@@ -19,6 +19,17 @@
 - **开箱即用**：内置 AI 对话（含 MCP/Skills/Tool Use）、复读机、每日新闻等实用插件
 - **插件市场**：完全兼容官方插件市场 [AniaBot-Plugins](https://github.com/AniaBot-Project/AniaBot-Plugins)，面板「插件市场」可直接浏览、在线安装/升级/卸载社区插件并自动编译重启
 
+> [!NOTE]
+> **关于 QQ 平台接入（OneBot v11）与 NapCat 官方停更说明**
+> - CocoBot 对接的是通用的 **OneBot v11 协议标准**（`ws://` 或 `http://`），底层协议实现完全解耦，**不绑定任何单一客户端软件**。
+> - 近期原 `NapCatQQ` 官方项目已宣布停止维护并归档。**已部署的现有实例完全不受影响**，只要本地进程正常运行即可继续稳定使用。
+> - **新部署接入 QQ 推荐方案**：
+>   1. **同协议原生替代**：使用底座内置支持的 **[Luckylilia (LLBot)](https://api.luckylillia.com/llms.txt)** 协议端（同样基于 OneBot v11，在控制台设置向导一键勾选启用）；
+>   2. **官方合规免封**：接入 **QQ 官方开放平台**（API v2，无需运行任何第三方协议端，抗风控且稳定合规）；
+>   3. **社区归档维护**：选用社区归档维护的 NapCat 历史版本 Docker 镜像；
+>   4. **多平台分流**：亦可直接使用免协议端的 **微信**（iLink 扫码直连）、飞书（官方 SDK 长连接）、Telegram 或 Discord。
+
+
 ![framework](./README/framework.webp)
 
 ![pannel](./README/pannel.webp)
