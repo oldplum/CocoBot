@@ -522,6 +522,7 @@ func (ania *AniaBot) startAdminPanel() {
 	var kbSrc adminpanel.KnowledgeBaseSource
 	var teamSrc adminpanel.TeamSource
 	var quotaSrc adminpanel.QuotaSource
+	var chatConsoleSrc adminpanel.ChatConsoleSource
 	var queryLogFn func(f querylog.Filter) []querylog.Entry
 	var queryLogStatsFn func(f querylog.Filter) []querylog.StatRow
 	var queryLogClearFn func(f querylog.Filter) int
@@ -564,6 +565,9 @@ func (ania *AniaBot) startAdminPanel() {
 		}
 		if src, ok := p.(adminpanel.QuotaSource); ok {
 			quotaSrc = src
+		}
+		if src, ok := p.(adminpanel.ChatConsoleSource); ok {
+			chatConsoleSrc = src
 		}
 		if src, ok := p.(adminpanel.QueryLogSource); ok {
 			queryLogFn = src.QueryLogRecent
@@ -649,6 +653,7 @@ func (ania *AniaBot) startAdminPanel() {
 		Knowledge:           kbSrc,
 		Teams:               teamSrc,
 		Quota:               quotaSrc,
+		ChatConsole:         chatConsoleSrc,
 		QueryLogs:           queryLogFn,
 		QueryLogsStats:      queryLogStatsFn,
 		QueryLogsClear:      queryLogClearFn,
@@ -925,6 +930,21 @@ func (ania *AniaBot) GetGroupDetail(groupId message.QID) (*message.GroupInfo, bo
 		return nil, false
 	}
 	return a.GetGroupDetail(groupId)
+}
+
+// GetGroupMemberList 获取群成员列表（按群 ID 前缀路由到对应平台适配器）。
+// 实现 bot.GroupMembers：群成员枚举是 QQ 平台专属能力（adapter.QQExt），
+// 其余适配器返回 false，调用方退化（如面板消息日志保留 @ 的 ID 占位）。
+func (ania *AniaBot) GetGroupMemberList(groupId message.QID, noCache bool) (*[]message.GroupUserInfo, bool) {
+	a := ania.route(groupId)
+	if a == nil {
+		return nil, false
+	}
+	qq, ok := a.(adapter.QQExt)
+	if !ok {
+		return nil, false
+	}
+	return qq.GetGroupMemberList(groupId, noCache)
 }
 
 // GetGroupMsgHistory 获取群聊消息历史（按群 ID 前缀路由到对应平台适配器）。

@@ -12,7 +12,7 @@ const ldflagsPath = "github.com/jeanhua/AniaBot/bot/version.Version"
 var CocoVersion = "v1.5.2"
 
 // FrameworkVersion 底层 AniaBot 框架引擎版本号。
-var FrameworkVersion = "v4.8.1"
+var FrameworkVersion = "v4.8.2"
 
 // Version 当前版本号。CI 打 tag 构建注入形如 v4.6.6；docker 手动触发
 // （容器滚动更新拉 latest）注入短 commit SHA；未注入时为 dev。

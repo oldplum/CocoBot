@@ -123,6 +123,28 @@ export function buildMsgLogs(now) {
     '<reply>\n  [nickname:阿白 id:qq:10002]: 收到，正好下周要重装\n</reply>\n同求 +1')
   group(44, G1, 'qq:10000', '管理员',
     '\n<合并转发消息>\n  [nickname:管理员 id:qq:10000]: 周末活动安排：周六晚 8 点组队开黑，语音频道见\n  [nickname:星野 id:qq:10001]: 收到，带我一个\n  [nickname:咕咕鸟 id:qq:10006]: +1\n</合并转发消息>\n')
+  // 嵌套合并转发（转发节点自己又是一条转发）：文本格式与 FriendlyText 一致，
+  // 内层块整体多缩进两个空格；引用它的消息同样把整段内容缩进一层。转发内部的
+  // 图片以 in_forward 媒体记录，面板会按 [图片] 占位顺序填回对应节点。
+  const nestedForward = '<合并转发消息>'
+    + '\n  [nickname:管理员 id:qq:10000]: '
+    + '\n  <合并转发消息>'
+    + '\n    [nickname:星野 id:qq:10001]: 周末的联机房间开好了[图片]'
+    + '\n    [nickname:咕咕鸟 id:qq:10006]: 我十点到'
+    + '\n  </合并转发消息>'
+    + '\n  [nickname:阿白 id:qq:10002]: 这也能转发？'
+    + '\n  <合并转发消息>'
+    + '\n    [nickname:星野 id:qq:10001]: 可以，聊天记录能套娃[图片]'
+    + '\n    [nickname:林然 id:qq:10003]: 孩子们'
+    + '\n  </合并转发消息>'
+    + '\n</合并转发消息>'
+  group(43, G1, 'qq:10000', '管理员', '\n' + nestedForward + '\n', [
+    { kind: 'image', name: '联机房间.png', url: PHOTO_SEA, in_forward: true },
+    { kind: 'image', name: '套娃.png', url: PHOTO_MENU, in_forward: true },
+  ])
+  group(41, G1, 'qq:10003', '林然',
+    '<reply>\n  [nickname:管理员 id:qq:10000]: \n  '
+      + nestedForward.replace(/\n/g, '\n  ') + '\n</reply>\n我看不懂了')
   group(36, G1, 'qq:10003', '林然', '周六晚上我可能十点后才能上')
   group(30, G1, 'qq:10002', '阿白', '没事，语音频道一直开着')
   group(22, G1, 'qq:10001', '星野', '[图片][图片]', [
@@ -213,12 +235,13 @@ export function buildQueryLogs(now) {
     const cached = Math.floor(prompt * (0.3 + rand() * 0.3))
     const iterations = q.tools.length + ri(0, 2)
     const isGroup = rand() < 0.7
+    // 隔几条插入一条面板试聊记录，演示 Query 日志的「试聊」筛选
+    const panel = !proactive && n % 9 === 0
     const item = {
       id: pad(n, 8), // 定长字符串 id，字典序 == 时间序
       time: toLocalIso(new Date(t)),
-      chat_type: isGroup ? 'group' : 'friend',
-      target_id: isGroup ? DEMO_GROUP : pick([DEMO_ADMIN, 'qq:10004']),
-      senders: [pick(MEMBERS).id],
+      chat_type: panel ? 'panel' : isGroup ? 'group' : 'friend',
+      target_id: panel ? '通用试聊' : isGroup ? DEMO_GROUP : pick([DEMO_ADMIN, 'qq:10004']),
       query: q.q,
       status,
       duration_ms: ri(2, 60) * 1000,
@@ -229,6 +252,8 @@ export function buildQueryLogs(now) {
       cached_tokens: cached,
     }
     if (proactive) item.kind = 'proactive'
+    if (panel) item.note = '面板试聊会话「通用试聊」'
+    else item.senders = [pick(MEMBERS).id]
     if (q.tools.length) {
       item.tool_calls = q.tools.map(([name, args]) => ({
         name, arguments: args,
@@ -411,6 +436,7 @@ export function buildTokenStatsDetail(range, now, startStr, endStr) {
     { chat_type: 'friend', target_id: DEMO_ADMIN, ...split(sumAcc(daily.slice(-5)), 0.12) },
     { chat_type: 'friend', target_id: 'qq:10004', ...split(sumAcc(daily.slice(-7)), 0.06) },
     { chat_type: 'group', target_id: 'qq:7891011', ...split(sumAcc(daily.slice(-9)), 0.04) },
+    { chat_type: 'panel', target_id: '通用试聊', ...split(sumAcc(daily.slice(-3)), 0.03) },
   ]
   const hourly = Array.from({ length: 24 }, (_, h) => {
     const q = ri(0, 14), p = ri(0, 2), tk = ri(0, 6)
@@ -437,7 +463,7 @@ export function buildTokenStatsDetail(range, now, startStr, endStr) {
     summary: numAcc(summaryNum),
     today: numAcc(daily[daily.length - 1]),
     by_source: { query: numAcc(split(summaryNum, 0.65)), proactive: numAcc(split(summaryNum, 0.05)), task: numAcc(split(summaryNum, 0.3)) },
-    by_chat_type: { group: numAcc(split(summaryNum, 0.72)), friend: numAcc(split(summaryNum, 0.28)) },
+    by_chat_type: { group: numAcc(split(summaryNum, 0.7)), friend: numAcc(split(summaryNum, 0.25)), panel: numAcc(split(summaryNum, 0.05)) },
     by_status: byStatus,
     top_targets: topTargets.map((t) => ({ chat_type: t.chat_type, target_id: t.target_id, ...numAcc(t) })),
     hourly: hourly.map((h) => ({ date: h.date, query: h.query, proactive: h.proactive, task: h.task, total: h.total })),

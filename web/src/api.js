@@ -6,7 +6,9 @@ export const auth = reactive({
   setupRequired: false,
   notice: '',
   cocobotVersion: 'v1.5.2',
-  frameworkVersion: 'v4.8.1',
+  frameworkVersion: 'v4.8.2',
+  // 消息日志图片优先由浏览器直连平台 CDN（服务端下发，默认开启）
+  mediaDirect: true,
 })
 
 async function request(path, options = {}) {
@@ -86,6 +88,29 @@ export function msgMediaUrl(url, name = '', download = false, ref = null) {
   return `/api/msglogs/media?${q.toString()}`
 }
 
+// 消息图片能否让浏览器直连平台 CDN：只接受 http(s)，且面板是 HTTPS 时只能用
+// https 地址（否则会被浏览器当作混合内容拦掉）。data: / blob: 由调用方直接
+// 使用，不需要经过这里。
+export function canDirectMsgMedia(url) {
+  if (!url || /^(?:data|blob):/i.test(url)) return false
+  if (!/^https?:\/\//i.test(url)) return false
+  if (typeof location !== 'undefined' && location.protocol === 'https:' && !/^https:/i.test(url)) {
+    return false
+  }
+  return true
+}
+
+// 过期媒体的续签直链：面板 302 到平台刚签发的 CDN 地址，图片由浏览器直接
+// 下载，面板只承担这次重定向。ref 为 { entry, index, attempt }。
+export function msgMediaLinkUrl(ref) {
+  if (!ref || !ref.entry) return ''
+  const q = new URLSearchParams()
+  q.set('entry', String(ref.entry))
+  if (ref.index !== undefined && ref.index !== null) q.set('index', String(ref.index))
+  if (ref.attempt) q.set('t', String(ref.attempt))
+  return `/api/msglogs/media/link?${q.toString()}`
+}
+
 export const api = {
   async checkLogin() {
     try {
@@ -94,6 +119,7 @@ export const api = {
       auth.setupRequired = me.setup_required === true
       if (me.cocobot_version) auth.cocobotVersion = me.cocobot_version
       if (me.framework_version) auth.frameworkVersion = me.framework_version
+      auth.mediaDirect = me.media_direct !== false
     } catch {
       auth.loggedIn = false
     } finally {
@@ -107,6 +133,7 @@ export const api = {
     try {
       const me = await request('/api/me')
       auth.setupRequired = me.setup_required === true
+      auth.mediaDirect = me.media_direct !== false
     } catch { /* 忽略 */ }
   },
   completeSetup: () => request('/api/setup/complete', { method: 'POST' }),
@@ -223,6 +250,27 @@ export const api = {
     request(`/api/clocks/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(fields) }),
   deleteClock: (id) =>
     request(`/api/clocks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  // 试聊室：在面板内直接与 AI 对话（复用完整对话管线，回复只回显面板、不发送到任何平台）
+  // 可选目标：通用试聊 + 各平台通讯录里的群/好友（绑定后继承该会话的提示词覆盖、记忆、知识库等）
+  getChatConsoleTargets: () => request('/api/chatconsole/targets'),
+  getChatConsoleSessions: () => request('/api/chatconsole/sessions'),
+  createChatConsoleSession: (payload) =>
+    request('/api/chatconsole/sessions', { method: 'POST', body: JSON.stringify(payload) }),
+  deleteChatConsoleSession: (id) =>
+    request(`/api/chatconsole/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  clearChatConsoleSession: (id) =>
+    request(`/api/chatconsole/sessions/${encodeURIComponent(id)}/clear`, { method: 'POST' }),
+  // 增量拉取消息：after 为已拿到的最大 seq（服务器总会重发最后一条，用于刷新流式文本）
+  getChatConsoleMessages: (id, after = 0) =>
+    request(`/api/chatconsole/sessions/${encodeURIComponent(id)}/messages?after=${after}`),
+  sendChatConsoleMessage: (id, text) =>
+    request(`/api/chatconsole/sessions/${encodeURIComponent(id)}/send`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
+  stopChatConsole: (id) =>
+    request(`/api/chatconsole/sessions/${encodeURIComponent(id)}/stop`, { method: 'POST' }),
 
   getSkills: () => request('/api/skills'),
   getSkillDetail: (name) => request(`/api/skills/${encodeURIComponent(name)}`),

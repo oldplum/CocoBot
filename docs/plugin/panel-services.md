@@ -52,6 +52,7 @@ for _, p := range ania.plugins {
 | Agent 团队 | `adminpanel.TeamSource` | AI 对话插件 |
 | 配额管理 | `adminpanel.QuotaSource` | AI 对话插件 |
 | Query 日志 | `adminpanel.QueryLogSource` | AI 对话插件 |
+| 试聊室 | `adminpanel.ChatConsoleSource` | AI 对话插件 |
 
 ## 接口签名
 
@@ -92,7 +93,7 @@ type MsgLogSessionDeleteSource interface {
 
 `msglog.Entry` 字段：`ID uint64`、`Time`、`Type`、`GroupId`、`UserId`、`Nickname`、`Title`、`Text`、`Media`、`MessageId`。`Media` 描述消息内的图片 / 文件（`Kind`、`URL`、`Name`、`Size`、`FileId`），`URL` 只应填浏览器可访问的 http(s) 地址——`data:` / `base64:` 内联负载体积可达 MB 级，写进日志会让缓存存储迅速膨胀，面板会把它们当作不可展示的占位。`Entry.Deleted` 是内部删除标记，接口返回的数据源应自行过滤掉它（直接用 `msglog.Recorder` 的读取方法即可，已统一过滤）。
 
-会话键由 `Entry.SessionKey()` 统一生成：群消息 / 群通知为 `g:<群ID>`，好友消息 / 好友通知为 `f:<用户ID>`，其余通知为 `n:system`。推荐直接用 `bot/component/msglog` 的 `Recorder`：它按上述规则维护会话索引（首次查询时从存储重建，之后随 `Add` 增量更新），并自动对预览文本做截断。图片 / 文件下载由面板的媒体代理 `/api/msglogs/media?url=…&entry=…&index=…` 完成（管理员登录态访问、拒绝本机 / 私网地址），插件只需填好 `Media.URL`。
+会话键由 `Entry.SessionKey()` 统一生成：群消息 / 群通知为 `g:<群ID>`，好友消息 / 好友通知为 `f:<用户ID>`，其余通知为 `n:system`。推荐直接用 `bot/component/msglog` 的 `Recorder`：它按上述规则维护会话索引（首次查询时从存储重建，之后随 `Add` 增量更新），并自动对预览文本做截断。图片默认由浏览器直连 `Media.URL`（不占服务器带宽）；日志里的地址过期时，面板用 `/api/msglogs/media/link?entry=…&index=…` 向平台续签并 302 到新地址，直连失败或下载文件时才走媒体代理 `/api/msglogs/media?url=…&entry=…&index=…`（管理员登录态访问、拒绝本机 / 私网地址，地址过期时也会续签），插件只需填好 `Media.URL`。
 
 `Entry.MessageId` 与 `Media.FileId` 决定媒体地址能否续期：QQ 过期后按 `FileId` 调 `get_image` / `get_file` / `get_group_file_url` 重新签发，失败再按 `MessageId` 重新拉取原消息；两者都缺省时面板只能显示加载失败，因此尽量一并记录（`Recorder` 侧无需额外处理，插件填好条目字段即可）。
 
@@ -190,6 +191,34 @@ type QueryLogSource interface {
     QueryLogRecent(f querylog.Filter) []querylog.Entry
 }
 ```
+
+### ChatConsoleSource —— 试聊室页
+
+把聊天搬到面板上：管理员在面板里直接发消息，插件用自己的对话管线生成回复并回显（不向任何平台发送消息）。发送是异步的——`ChatConsoleSend` 立即返回，面板按 `Seq` 轮询 `ChatConsoleMessages` 拿流式文本、工具调用明细与最终状态。试聊的一轮对话同样写入 Query 日志（`chat_type=panel`）并计入 Token 统计，但不计入每日配额；AI 用 `|||` 分隔的回复按多条 `ChatConsoleMessage` 返回，与线上拆成多条发送的效果一致。
+
+```go
+type ChatConsoleSource interface {
+    // 全部试聊会话（最近活动在前）
+    ChatConsoleSessions() []plugininfo.ChatConsoleSession
+    // 新建会话（目标为通用试聊或某个群聊/私聊 scope），返回创建结果
+    ChatConsoleCreate(req plugininfo.ChatConsoleSessionCreate) (plugininfo.ChatConsoleSession, error)
+    // 删除会话（连同转录与 AI 上下文）
+    ChatConsoleDelete(id string) error
+    // Seq 大于 afterSeq 的消息；最后一条总会重新返回，供面板刷新流式文本。
+    // busy 表示该会话是否仍在生成
+    ChatConsoleMessages(id string, afterSeq int64) ([]plugininfo.ChatConsoleMessage, bool, error)
+    // 清空转录与 AI 上下文（保留会话）
+    ChatConsoleClear(id string) error
+    // 异步发送一条用户消息；上一条仍在生成时应返回错误
+    ChatConsoleSend(id, text string) error
+    // 中止该会话正在生成的回复（空闲时为空操作）
+    ChatConsoleStop(id string) error
+}
+```
+
+`plugininfo.ChatConsoleSession`（`ID` / `Title` / `TargetKind` / `TargetID` / `TargetName` / `CreatedAt` / `UpdatedAt` / `Count` / `Busy`）与 `plugininfo.ChatConsoleMessage`（`Seq` / `Role`（user/assistant/system）/ `Text` / `Status`（running/ok/error/stopped/timeout/interrupted）/ `Error` / `Time` / `DurationMs` / `Attachments` / `ToolCalls` / `ToolCallsTotal` / `Usage`）是面板展示用的视图模型；`TargetKind` 取值 `test`（不绑定会话 scope）/ `group` / `friend`。附件用 data URI 直接回传给浏览器（图片内联、文件可下载），体积过大的内容建议只回一句话说明。
+
+`ChatConsoleCreate` 的 `target_id` 由面板从通讯录选择，与线上会话键（`g:<群 ID>` / `f:<用户 ID>`）中的 ID 一致，插件据此复用该会话的系统提示词覆盖、记忆、知识库等能力即可。
 
 ## 完整示例：自定义「消息日志」提供者
 

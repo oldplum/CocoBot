@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jeanhua/AniaBot/bot/component/msglog"
+	"github.com/jeanhua/AniaBot/bot/core/configstore"
 )
 
 // roundTripFunc 让测试把任意公网域名重定向到本地 httptest 服务。
@@ -440,5 +441,107 @@ func TestSanitizeMediaName(t *testing.T) {
 	}
 	if got := mediaFallbackName("周报.文档"); got != "media" {
 		t.Errorf("非 ASCII 后缀应回退为 media, got %q", got)
+	}
+}
+
+// TestMsgLogMediaLink 过期媒体的续签接口：302 到平台新地址，且重定向不可缓存。
+func TestMsgLogMediaLink(t *testing.T) {
+	fresh := "https://cdn.example.com/fresh.png?rkey=new"
+	s := &Server{opt: Options{
+		Logger: slog.Default(),
+		MsgLogMedia: func(entryID uint64, index int) (string, bool) {
+			if entryID != 7 || index != 1 {
+				return "", false
+			}
+			return fresh, true
+		},
+	}}
+	rec := httptest.NewRecorder()
+	s.handleMsgLogMediaLink(rec, httptest.NewRequest("GET", "/api/msglogs/media/link?entry=7&index=1", nil))
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Location"); got != fresh {
+		t.Fatalf("Location = %q, want %q", got, fresh)
+	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", cc)
+	}
+}
+
+// TestMsgLogMediaLinkReject 续签接口的边界：缺少引用、无法续签、内网地址，
+// 以及关闭「消息图片直连」时都拒绝。
+func TestMsgLogMediaLinkReject(t *testing.T) {
+	store := configstore.New(newFakePersistent(), nil)
+	s := &Server{opt: Options{
+		Logger: slog.Default(),
+		Config: store,
+		MsgLogMedia: func(uint64, int) (string, bool) {
+			return "http://192.168.0.2/a.png", true
+		},
+	}}
+
+	rec := httptest.NewRecorder()
+	s.handleMsgLogMediaLink(rec, httptest.NewRequest("GET", "/api/msglogs/media/link", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("缺少 entry 应返回 400, got %d", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	s.handleMsgLogMediaLink(rec, httptest.NewRequest("GET", "/api/msglogs/media/link?entry=1&index=0", nil))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("内网地址应返回 403, got %d", rec.Code)
+	}
+
+	if err := store.Set("bot.admin_panel.media_direct", false); err != nil {
+		t.Fatalf("写入配置失败: %v", err)
+	}
+	rec = httptest.NewRecorder()
+	s.handleMsgLogMediaLink(rec, httptest.NewRequest("GET", "/api/msglogs/media/link?entry=1&index=0", nil))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("关闭直连后应返回 403, got %d", rec.Code)
+	}
+
+	// 没有续期能力时返回 404，前端会退回媒体代理
+	plain := &Server{opt: Options{Logger: slog.Default()}}
+	rec = httptest.NewRecorder()
+	plain.handleMsgLogMediaLink(rec, httptest.NewRequest("GET", "/api/msglogs/media/link?entry=1&index=0", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("无法续签时应返回 404, got %d", rec.Code)
+	}
+}
+
+// TestHandleMeMediaDirect 面板把「图片直连 CDN」开关下发给前端：未配置时默认
+// 开启，配置关闭后前端应全部走媒体代理。
+func TestHandleMeMediaDirect(t *testing.T) {
+	store := configstore.New(newFakePersistent(), nil)
+	s := &Server{opt: Options{Config: store, Logger: slog.Default()}}
+
+	read := func() bool {
+		rec := httptest.NewRecorder()
+		s.handleMe(rec, httptest.NewRequest("GET", "/api/me", nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+		}
+		var out struct {
+			MediaDirect *bool `json:"media_direct"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("解析响应失败: %v", err)
+		}
+		if out.MediaDirect == nil {
+			t.Fatalf("响应缺少 media_direct: %s", rec.Body.String())
+		}
+		return *out.MediaDirect
+	}
+
+	if !read() {
+		t.Fatal("未配置时应默认开启直连")
+	}
+	if err := store.Set("bot.admin_panel.media_direct", false); err != nil {
+		t.Fatalf("写入配置失败: %v", err)
+	}
+	if read() {
+		t.Fatal("配置关闭后应下发布尔 false")
 	}
 }

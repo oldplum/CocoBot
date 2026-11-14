@@ -259,6 +259,7 @@ type Options struct {
 	Knowledge           KnowledgeBaseSource                                                      // AI 知识库管理（可为 nil）
 	Teams               TeamSource                                                               // Agent 团队管理（可为 nil）
 	Quota               QuotaSource                                                              // 每日 Token 配额管理（可为 nil）
+	ChatConsole         ChatConsoleSource                                                        // 面板试聊室（面板内直接与 AI 对话测试，可为 nil）
 	Marketplace         *marketplace.Service                                                     // 插件市场服务（可为 nil）
 	QueryLogs           func(f querylog.Filter) []querylog.Entry                                 // AI Query 日志（可为 nil）
 	QueryLogsStats      func(f querylog.Filter) []querylog.StatRow                               // Query 日志的轻量统计行（可为 nil）
@@ -336,6 +337,7 @@ func (s *Server) routes() {
 	s.mux.Handle("DELETE /api/msglogs", s.requireAuth(http.HandlerFunc(s.handleMsgLogDelete)))
 	s.mux.Handle("GET /api/msglogs/sessions", s.requireAuth(http.HandlerFunc(s.handleMsgLogSessions)))
 	s.mux.Handle("GET /api/msglogs/media", s.requireAuth(http.HandlerFunc(s.handleMsgLogMedia)))
+	s.mux.Handle("GET /api/msglogs/media/link", s.requireAuth(http.HandlerFunc(s.handleMsgLogMediaLink)))
 	s.mux.Handle("GET /api/querylogs", s.requireAuth(http.HandlerFunc(s.handleQueryLogs)))
 	s.mux.Handle("GET /api/querylogs/export", s.requireAuth(http.HandlerFunc(s.handleQueryLogsExport)))
 	s.mux.Handle("DELETE /api/querylogs", s.requireAuth(http.HandlerFunc(s.handleQueryLogsClear)))
@@ -378,6 +380,7 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /api/qrlogin/{platform}/status", s.requireAuth(http.HandlerFunc(s.handleQRLoginStatus)))
 	s.mux.Handle("POST /api/qrlogin/{platform}/verify", s.requireAuth(http.HandlerFunc(s.handleQRLoginVerify)))
 	s.mux.Handle("POST /api/restart", s.requireAuth(http.HandlerFunc(s.handleRestart)))
+	s.registerChatConsoleRoutes()
 	s.mux.Handle("GET /api/update/info", s.requireAuth(http.HandlerFunc(s.handleUpdateInfo)))
 	s.mux.Handle("POST /api/update/start", s.requireAuth(http.HandlerFunc(s.handleUpdateStart)))
 	s.mux.Handle("GET /api/update/status", s.requireAuth(http.HandlerFunc(s.handleUpdateStatus)))
@@ -526,7 +529,24 @@ func (s *Server) handleMe(w http.ResponseWriter, _ *http.Request) {
 		"setup_required":    s.opt.Config.SetupPending(),
 		"cocobot_version":   version.CocoVersion,
 		"framework_version": version.DisplayFrameworkVersion(),
+		// 前端据此决定消息日志里的图片是否先由浏览器直连平台 CDN
+		"media_direct": s.mediaDirect(),
 	})
+}
+
+// mediaDirect 读取「消息日志图片优先由浏览器直连平台 CDN」开关。
+// 未配置时默认开启：直连失败前端会自动回退到媒体代理，代理兜底续签，
+// 不影响最终能否看到图片。
+func (s *Server) mediaDirect() bool {
+	if s.opt.Config == nil {
+		return true
+	}
+	if v, ok := s.opt.Config.Get("bot.admin_panel.media_direct"); ok {
+		if b, ok := v.(bool); ok {
+			return b
+		}
+	}
+	return true
 }
 
 // handleSetupComplete 标记首次设置向导完成（或跳过）。
@@ -1169,6 +1189,40 @@ func (s *Server) handleMsgLogMedia(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, io.LimitReader(resp.Body, maxMsgLogMediaBytes))
 }
 
+// handleMsgLogMediaLink 为过期媒体续签一个直链并用 302 交给浏览器：
+// 图片字节由浏览器直接向平台 CDN 取，面板只承担一次很小的重定向请求，
+// 不再「下载再上传」中转图片，回看历史消息时也不会占用服务器带宽。
+//
+// 只接受日志引用（entry+index），目标地址仍按媒体代理的规则校验（仅 http(s)、
+// 拒绝本机 / 私网），避免把内网地址交给浏览器；关闭「消息图片直连」时不可用。
+func (s *Server) handleMsgLogMediaLink(w http.ResponseWriter, r *http.Request) {
+	if !s.mediaDirect() {
+		writeError(w, http.StatusForbidden, "消息图片直连已关闭，请走媒体代理")
+		return
+	}
+	entryID, index, hasRef, refErr := parseMsgLogMediaRef(r.URL.Query())
+	if refErr != "" {
+		writeError(w, http.StatusBadRequest, refErr)
+		return
+	}
+	if !hasRef {
+		writeError(w, http.StatusBadRequest, "缺少 entry 参数")
+		return
+	}
+	fresh, ok := s.msgLogMediaURL(entryID, index)
+	if !ok {
+		writeError(w, http.StatusNotFound, "媒体地址已失效，且无法从平台重新获取")
+		return
+	}
+	if _, status, errMsg := parseMsgLogMediaURL(fresh); errMsg != "" {
+		writeError(w, status, errMsg)
+		return
+	}
+	// 续签地址本身有有效期：重定向不能缓存，否则之后会一直跳到过期地址
+	w.Header().Set("Cache-Control", "no-store")
+	http.Redirect(w, r, fresh, http.StatusFound)
+}
+
 // msgLogMediaURL 向插件申请媒体续期地址；未提供续期能力时返回 false。
 func (s *Server) msgLogMediaURL(entryID uint64, index int) (string, bool) {
 	if s.opt.MsgLogMedia == nil {
@@ -1319,8 +1373,9 @@ func parseQueryLogFilter(r *http.Request) (querylog.Filter, string) {
 	if f.Kind != "" && f.Kind != querylog.KindChat && f.Kind != querylog.KindProactive {
 		return f, "kind 仅支持 chat / proactive"
 	}
-	if f.ChatType != "" && f.ChatType != "group" && f.ChatType != "friend" {
-		return f, "chat_type 仅支持 group / friend"
+	if f.ChatType != "" && f.ChatType != querylog.ChatTypeGroup &&
+		f.ChatType != querylog.ChatTypeFriend && f.ChatType != querylog.ChatTypePanel {
+		return f, "chat_type 仅支持 group / friend / panel"
 	}
 	if v := q.Get("start"); v != "" {
 		t, err := parseQueryTime(v)
@@ -1347,9 +1402,10 @@ func parseQueryLogFilter(r *http.Request) (querylog.Filter, string) {
 
 // handleQueryLogs 按条件分页查询 AI Query 日志（新在前）。
 // 支持查询参数：kind（chat / proactive，主动互动与普通对话区分）、
-// chat_type（group/friend）、target_id（群号/QQ）、sender（触发人 QQ）、
-// start / end（RFC3339 或 datetime-local 格式）、keyword（匹配用户输入）、
-// limit（每页条数，默认 50，最大 200）、before（分页游标：仅返回比该日志 ID 更旧的记录）。
+// chat_type（group/friend/panel，panel 为面板试聊）、target_id（群号/QQ）、
+// sender（触发人 QQ）、start / end（RFC3339 或 datetime-local 格式）、
+// keyword（匹配用户输入）、limit（每页条数，默认 50，最大 200）、
+// before（分页游标：仅返回比该日志 ID 更旧的记录）。
 // 响应：{"items": [...], "has_more": bool}。
 func (s *Server) handleQueryLogs(w http.ResponseWriter, r *http.Request) {
 	if s.opt.QueryLogs == nil {

@@ -33,45 +33,7 @@
       </div>
 
       <div class="msg-bubble" :class="{ 'has-media': media.length > 0 }">
-        <template v-for="(b, bi) in blocks" :key="'b' + bi">
-          <div v-if="b.type === 'text'" class="msg-text">
-            <MsgLogTokens :tokens="b.tokens" />
-          </div>
-
-          <blockquote v-else-if="b.type === 'quote'" class="msg-quote">
-            <div class="quote-head">
-              <span class="quote-bar" />
-              <span class="quote-name">{{ b.sender || '引用消息' }}</span>
-            </div>
-            <div class="quote-body">
-              <MsgLogTokens :tokens="b.tokens" />
-            </div>
-          </blockquote>
-
-          <details v-else-if="b.type === 'forward'" class="msg-forward">
-            <summary>
-              <span class="forward-ico">↪</span>
-              <span>合并转发消息</span>
-              <span class="forward-count">{{ b.count }} 条</span>
-              <span class="forward-tip">展开</span>
-            </summary>
-            <div class="forward-body">
-              <div
-                v-for="(n, ni) in b.nodes"
-                :key="ni"
-                class="forward-line"
-                :style="{ marginLeft: Math.min(n.indent, 10) * 4 + 'px' }"
-              >
-                <template v-if="n.type === 'node'">
-                  <span class="forward-name">{{ n.name }}</span>
-                  <span class="forward-colon">：</span>
-                  <span>{{ n.text }}</span>
-                </template>
-                <span v-else class="forward-tag">{{ n.text }}</span>
-              </div>
-            </div>
-          </details>
-        </template>
+        <MsgLogBlocks :blocks="blocks" />
 
         <!-- 图片：点击放大；加载失败时点击重试（面板会先向平台续期过期地址） -->
         <div v-if="images.length" class="msg-images" :class="imageLayout">
@@ -85,11 +47,12 @@
           >
             <img
               v-if="!isFailed(m)"
-              :src="mediaUrl(m.url, '', false, refFor(m))"
+              :src="imageSrc(m)"
               :alt="m.name || '图片'"
               loading="lazy"
+              referrerpolicy="no-referrer"
               @load="$emit('media-load')"
-              @error="markFailed(m)"
+              @error="onImageError(m)"
             />
             <span v-else class="img-broken">
               <Icon name="Image" :size="20" />
@@ -165,19 +128,18 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, provide, ref, watch } from 'vue'
 import { Icon } from 'animal-island-vue'
-import { msgMediaUrl } from '../api.js'
+import { auth, canDirectMsgMedia, msgMediaLinkUrl, msgMediaUrl } from '../api.js'
 import { avatarGradient, avatarInitials, qqUserAvatarUrl } from '../utils/avatar.js'
 import {
   friendlyPreview,
-  parseForwardNodes,
   parseInline,
   pruneMediaTokens,
   shortId,
   splitMessageBlocks,
 } from '../utils/messageText.js'
-import MsgLogTokens from './MsgLogTokens.vue'
+import MsgLogBlocks from './MsgLogBlocks.vue'
 
 const props = defineProps({
   log: { type: Object, required: true },
@@ -199,11 +161,16 @@ const isNotice = computed(() => props.log.type === 'notice')
 const clock = computed(() => fmtClock(props.log.time))
 const preview = computed(() => friendlyPreview(props.log.text, 140))
 
-const media = computed(() => (Array.isArray(props.log.media) ? props.log.media.filter((m) => m && m.kind) : []))
+const allMedia = computed(() => (Array.isArray(props.log.media) ? props.log.media.filter((m) => m && m.kind) : []))
+// 气泡底部只放本条消息自己的媒体；合并转发记录内部的图片（InForward）在对应
+// 转发卡片里按占位顺序内联展示，不重复堆到气泡底部。
+const media = computed(() => allMedia.value.filter((m) => !m.in_forward))
 const images = computed(() => media.value.filter((m) => m.kind === 'image' && m.url))
 const files = computed(() => media.value.filter((m) => m.kind === 'file'))
 const records = computed(() => media.value.filter((m) => m.kind === 'record' && m.url))
 const videos = computed(() => media.value.filter((m) => m.kind === 'video' && m.url))
+// 转发记录内部的图片：数组顺序即出现顺序，按转发节点里 [图片] 的先后逐个匹配
+const forwardImages = computed(() => allMedia.value.filter((m) => m.in_forward && m.kind === 'image' && m.url))
 
 const imageLayout = computed(() => {
   if (images.value.length === 1) return 'is-single'
@@ -250,23 +217,99 @@ function refFor(m) {
   return { entry: props.log.id, index, attempt: attempts.value[mediaKey(m)] || 0 }
 }
 
-// 文本块与引用块共用一份媒体计数：文本里的 [图片] / [文件:…] 占位会被实际媒体吃掉。
+// 图片加载按「尽量不让字节经过 bot」的顺序逐级退化：
+//   0. 直连日志里记录的 CDN 地址（地址还在有效期内，面板零请求）
+//   1. 直连面板续签后的地址（面板只做一次 302，图片仍由浏览器向 CDN 取）
+//   2. 面板媒体代理（最后兜底：代理续签并转发字节）
+// 每一级失败才进入下一级；失败级别按媒体维度记住，避免重复试。
+const stages = ref({}) // 媒体键 -> 已确定失败的最大级别
+
+// QQ 的媒体地址带 rkey 鉴权参数、约 2 小时过期：消息太旧时直连必然失败，
+// 直接从续签开始，省掉一次无谓的探测请求。没有 rkey 的地址（如部分
+// gchat.qpic.cn 直链）不会过期，照常直连。
+const rkeyTTL = 100 * 60 * 1000
+function looksExpired(m) {
+  if (!/rkey=/i.test(m.url || '')) return false
+  const t = new Date(props.log.time).getTime()
+  return Number.isFinite(t) && Date.now() - t > rkeyTTL
+}
+
+// 初始级别：能直连就直连；日志地址已过期就直接走续签（需要日志 ID 才能续签）
+function baseStage(m) {
+  if (!auth.mediaDirect || !canDirectMsgMedia(m.url)) return 2
+  if (!looksExpired(m)) return 0
+  return msgMediaLinkUrl(refFor(m)) ? 1 : 2
+}
+
+function stageOf(m) {
+  const v = stages.value[mediaKey(m)]
+  return v === undefined ? baseStage(m) : v
+}
+
+function imageSrc(m) {
+  const stage = stageOf(m)
+  if (stage === 0) return m.url
+  if (stage === 1) {
+    const link = msgMediaLinkUrl(refFor(m))
+    if (link) return link
+  }
+  return mediaUrl(m.url, '', false, refFor(m))
+}
+
+function onImageError(m) {
+  const stage = stageOf(m)
+  if (stage < 2) {
+    // 直连失败先试续签直链；续签也不可用（或续签后的地址仍失败）再走代理
+    const next = stage === 0 ? (msgMediaLinkUrl(refFor(m)) ? 1 : 2) : 2
+    stages.value = { ...stages.value, [mediaKey(m)]: next }
+    return
+  }
+  markFailed(m)
+}
+
+// 顶层正文里的 [图片] / [文件:…] 占位会被本条消息实际渲染的媒体吃掉（逐个消耗）；
+// 引用里的占位属于别的消息，只做样式化；转发节点里的 [图片] 换成转发内部的
+// 真实图片（见 attachForwardImages）。
 const blocks = computed(() => {
   const counts = {
     image: images.value.length,
     file: files.value.length,
     record: records.value.length + videos.value.length,
   }
-  return splitMessageBlocks(props.log.text).map((b) => {
-    if (b.type === 'text' || b.type === 'quote') {
-      return { ...b, tokens: pruneMediaTokens(parseInline(b.text), counts) }
+  return withTokens(splitMessageBlocks(props.log.text), counts, true, { images: forwardImages.value.slice() })
+})
+
+function withTokens(list, counts, isRoot = false, forward = null) {
+  return list.map((b) => {
+    if (b.type === 'text') {
+      const tokens = parseInline(b.text)
+      return { ...b, tokens: isRoot ? pruneMediaTokens(tokens, counts) : tokens }
+    }
+    if (b.type === 'quote') {
+      return { ...b, blocks: withTokens(b.blocks || [], counts) }
     }
     if (b.type === 'forward') {
-      return { ...b, nodes: parseForwardNodes(b.text) }
+      // 按渲染顺序消费转发内图片：先正文前的块，再逐个节点（节点正文 → 其嵌套内容）
+      const lead = withTokens(b.blocks || [], counts, false, forward)
+      const nodes = b.nodes.map((n) => {
+        const tokens = attachForwardImages(parseInline(n.text), forward)
+        return { ...n, tokens, blocks: withTokens(n.blocks || [], counts, false, forward) }
+      })
+      return { ...b, blocks: lead, nodes }
     }
     return b
   })
-})
+}
+
+// 转发节点正文里的 [图片] 按先后顺序换成转发记录内部的图片；没有对应媒体时
+// 保留「图片」占位提示（旧日志、内联内容缺失或超出媒体上限）。
+function attachForwardImages(tokens, forward) {
+  if (!forward || !forward.images.length) return tokens
+  return tokens.map((t) => {
+    if (t.type !== 'image-placeholder' || !forward.images.length) return t
+    return { type: 'image', media: forward.images.shift() }
+  })
+}
 
 const failed = ref(new Set())
 function isFailed(m) {
@@ -278,13 +321,16 @@ function markFailed(m) {
   failed.value = next
   emit('media-load')
 }
-// 重试：清掉失败标记并递增 attempt，媒体地址带上新参数以绕过浏览器缓存，
-// 面板代理会同时重新向平台申请可用地址。
+// 重试：清掉失败标记、回到初始级别并递增 attempt，媒体地址带上新参数以绕过
+// 浏览器缓存，面板会重新向平台申请可用地址。
 function retry(m) {
   const key = mediaKey(m)
   const next = new Set(failed.value)
   next.delete(key)
   failed.value = next
+  const nextStages = { ...stages.value }
+  delete nextStages[key]
+  stages.value = nextStages
   attempts.value = { ...attempts.value, [key]: (attempts.value[key] || 0) + 1 }
 }
 
@@ -292,10 +338,23 @@ function openImage(index) {
   const m = images.value[index]
   if (!m) return
   emit('preview', {
-    items: images.value.map((item) => ({ media: item, ref: refFor(item) })),
+    items: images.value.map((item) => ({ media: item, ref: refFor(item), src: imageSrc(item) })),
     index,
   })
 }
+
+// 转发卡片里的图片沿用气泡同一套地址续签 / 失败重试状态：递归渲染层
+// （MsgLogTokens）通过 inject 取用，避免在两处各维护一份媒体状态。
+provide('msglogMedia', {
+  src: imageSrc,
+  failed: isFailed,
+  onError: onImageError,
+  retry,
+  loaded: () => emit('media-load'),
+  preview(item) {
+    emit('preview', { items: [{ media: item, ref: refFor(item), src: imageSrc(item) }], index: 0 })
+  },
+})
 
 function mediaUrl(url, name = '', download = false, ref = null) {
   return msgMediaUrl(url, name, download, ref)
@@ -496,126 +555,6 @@ function fileBadge(name) {
 .msg-bubble.has-media {
   padding-bottom: 11px;
 }
-.msg-text {
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.msg-text + .msg-text {
-  margin-top: 4px;
-}
-
-/* ---------- 引用 ---------- */
-.msg-quote {
-  margin: 3px 0 6px;
-  padding: 7px 10px 7px 11px;
-  border-radius: 11px;
-  background: var(--surface-2);
-  border: 1.5px solid var(--line);
-  position: relative;
-}
-.quote-head {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin-bottom: 2px;
-  font-size: 10.5px;
-  color: var(--ink-soft);
-  min-width: 0;
-}
-.quote-bar {
-  width: 3px;
-  height: 11px;
-  border-radius: 3px;
-  background: var(--accent);
-  flex-shrink: 0;
-}
-.quote-name {
-  font-weight: 700;
-  color: #7c6547;
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.quote-id {
-  font-family: var(--font-mono);
-  color: var(--ink-muted);
-}
-.quote-body {
-  font-size: 12px;
-  color: var(--ink-soft);
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 96px;
-  overflow: hidden;
-}
-
-/* ---------- 合并转发 ---------- */
-.msg-forward {
-  margin: 5px 0;
-  border-radius: 12px;
-  background: var(--surface-2);
-  border: 1.5px solid var(--line-strong);
-  overflow: hidden;
-}
-.msg-forward summary {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 8px 11px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 700;
-  color: #6b5538;
-  list-style: none;
-  user-select: none;
-}
-.msg-forward summary::-webkit-details-marker {
-  display: none;
-}
-.msg-forward[open] summary {
-  border-bottom: 1.5px dashed var(--line-strong);
-}
-.forward-ico {
-  color: var(--accent-strong);
-  font-weight: 800;
-}
-.forward-count {
-  font-size: 10.5px;
-  color: var(--ink-muted);
-  font-weight: 600;
-}
-.forward-tip {
-  margin-left: auto;
-  font-size: 10px;
-  color: var(--ink-muted);
-  font-weight: 600;
-}
-.msg-forward[open] .forward-tip {
-  opacity: 0;
-}
-.forward-body {
-  padding: 8px 11px 10px;
-  max-height: 240px;
-  overflow-y: auto;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--ink-soft);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.forward-line + .forward-line {
-  margin-top: 2px;
-}
-.forward-name {
-  color: #7c6547;
-  font-weight: 700;
-}
-.forward-tag {
-  color: var(--ink-muted);
-  font-size: 11px;
-}
-
 /* ---------- 图片 ---------- */
 .msg-images {
   display: flex;
