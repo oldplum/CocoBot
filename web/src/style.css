@@ -472,6 +472,24 @@
   color: #f08080;
 }
 
+/* 组件库主按钮统一为 CocoBot 深海蓝白字 + 立体阴影（与 .btn-accent 一致） */
+.app-shell button.animal-btn--primary:not(.animal-btn--danger):not(.animal-btn--ghost) {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 4px 0 0 var(--accent-strong);
+}
+.app-shell button.animal-btn--primary:not(.animal-btn--danger):not(.animal-btn--ghost):hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  box-shadow: 0 5px 0 0 var(--accent-strong);
+}
+.app-shell button.animal-btn--primary:not(.animal-btn--danger):not(.animal-btn--ghost):active:not(:disabled) {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+  box-shadow: 0 1px 0 0 var(--accent-strong);
+}
+
 /* ============================================================================
    工具类 → 小岛主题兼容层
    面板各页大量直接使用浅色 Tailwind 工具类（bg-white / border-slate-200 ...），
