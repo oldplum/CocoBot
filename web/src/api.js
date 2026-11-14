@@ -5,7 +5,7 @@ export const auth = reactive({
   checked: false,
   setupRequired: false,
   notice: '',
-  cocobotVersion: 'v1.5.2',
+  cocobotVersion: 'v1.6.0',
   frameworkVersion: 'v4.8.2',
   // 消息日志图片优先由浏览器直连平台 CDN（服务端下发，默认开启）
   mediaDirect: true,
