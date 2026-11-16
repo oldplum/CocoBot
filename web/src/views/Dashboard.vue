@@ -180,11 +180,11 @@
         <dl class="flex-1 mt-3 text-xs">
           <div class="hostrow">
             <dt class="tlabel">CocoBot</dt>
-            <dd class="hostval font-semibold text-[#224294]">{{ status.cocobot_version || 'v1.6.0' }}</dd>
+            <dd class="hostval font-semibold text-[#224294]">{{ status.cocobot_version || 'v1.7.0' }}</dd>
           </div>
           <div class="hostrow">
             <dt class="tlabel">Engine</dt>
-            <dd class="hostval">AniaBot {{ status.framework_version || 'v4.8.1' }}</dd>
+            <dd class="hostval">AniaBot {{ status.framework_version || 'v4.8.2' }}</dd>
           </div>
           <div class="hostrow">
             <dt class="tlabel">System</dt>
