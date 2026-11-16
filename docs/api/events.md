@@ -1,6 +1,6 @@
 # 事件接口参考
 
-插件通过重写 `plugin.Meta` 的对应方法接收事件。所有事件方法签名中的 `bot bot.Bot` 为框架注入的机器人操作接口（见 [Bot 接口](/api/bot)）。
+插件通过重写 `plugin.Meta` 的对应方法接收事件（部分事件为可选接口，实现对应接口即可接收）。所有事件方法签名中的 `bot bot.Bot` 为框架注入的机器人操作接口（见 [Bot 接口](/api/bot)）。
 
 ## 平台作用域
 
@@ -82,6 +82,47 @@ type Command struct {
 
 解析规则见 [命令解析](/plugin/commands)。
 
+## Bot 发送消息事件（可选接口）
+
+插件通过 `bot.Bot`（`SendGroupMsg` / `SendFriendMsg`，以及合并转发、流式回复）发送消息时，框架会在提交平台前后分别广播发送事件：其他插件可以在这时改写消息、拦截发送或记录 Bot 发出的内容。
+
+```go
+// 发送前拦截（可选接口）：返回 false 取消本次发送
+type SendMsgInterceptor interface {
+    OnBeforeSendMsg(ctx context.Context, b bot.Bot, ev *message.OutgoingMessage) (bool, error)
+}
+
+// 发送后观察（可选接口）：成功与失败都会触发
+type SendMsgObserver interface {
+    OnAfterSendMsg(ctx context.Context, b bot.Bot, ev message.SentMessage) error
+}
+```
+
+事件载荷：
+
+```go
+type OutgoingMessage struct {
+    Kind     message.SendKind               // SendKindGroup / SendKindFriend
+    Target   message.QID                    // 目标群 ID（群聊）或用户 ID（私聊）
+    Segments []message.OB11Segment          // 普通消息段
+    Forward  *message.ForwardMessageSegment // 合并转发内容（与 Segments 二选一）
+}
+
+type SentMessage struct {
+    OutgoingMessage
+    MessageId message.QID // 平台返回的消息 ID（失败 / 流式回复时可能为空）
+    Success   bool        // 平台是否确认发送成功
+}
+```
+
+- **发送前事件**按插件 `Order` 从小到大同步广播；返回 `false` 立即取消本次发送（后续插件不再收到该事件，消息不会提交平台，发送后事件也不触发）。插件可直接改写 `ev.Segments` / `ev.Forward`，改写结果就是真正发出的内容。
+- **发送后事件**为广播制（不中断），平台返回后触发；`Success=false` 表示平台未确认成功（可能是平台拒绝或超时）。
+- 单次发送事件分发超时 **10 秒**；发送前事件会阻塞真正的发送，回调里不要做耗时操作。
+- **覆盖范围**：群聊 / 私聊的文本与媒体消息、合并转发（仅 QQ 平台支持）、流式回复（创建消息时触发发送前事件，流结束时以最终文本触发一次发送后事件）。
+- 事件按 `Meta.Platforms` 过滤，回调里的 `bot.Bot` 是目标平台的能力包装外观（可断言 `bot.QQ` 等）。
+- 在发送事件回调里再次发送消息不会再触发发送事件（框架按 goroutine 屏蔽嵌套分发），避免无限递归。
+- 典型用途：日志插件记录 Bot 发出的消息；内容审核插件在发送前替换敏感词或直接取消发送。
+
 ## 通知事件（广播制）
 
 全部 14 种通知广播给**所有**插件，无阻断、无顺序影响。返回的 `error` 仅用于日志记录。
@@ -157,7 +198,7 @@ type GroupBanNotice struct {
     SubType    string // "ban" / "lift_ban"
     GroupId    QID
     OperatorId QID
-    UserId     QID    // 为 0 表示全员禁言
+    UserId     QID    // 空字符串表示全员禁言
     Duration   uint   // 禁言时长（秒），解禁时为 0
 }
 ```
@@ -179,7 +220,7 @@ type GroupRecallNotice struct {
     GroupId    QID
     UserId     QID   // 消息发送者
     OperatorId QID   // 操作者（自己撤回时 = UserId）
-    MessageId  uint
+    MessageId  QID   // 消息 ID（QID 可变长，飞书为 om_xxx）
 }
 ```
 
@@ -189,7 +230,7 @@ type GroupRecallNotice struct {
 type FriendRecallNotice struct {
     BasicNotice
     UserId    QID
-    MessageId uint
+    MessageId QID   // 消息 ID（QID 可变长）
 }
 ```
 
@@ -315,11 +356,12 @@ const (
 ## 异常事件
 
 ```go
-// OnPanic 任何插件（或 bot.Go 协程）运行时 panic 时触发
+// OnPanic 插件运行期（b.Go 启动的受管协程）panic 时触发
 OnPanic(ctx context.Context, bot bot.Bot, name string, err any)
 ```
 
-- `name` 为 panic 发生的上下文标签（如「群聊消息事件」或 `bot.Go` 的任务名）
+- `name` 为 panic 发生的上下文标签（如 `b.Go` 的任务名）
+- 只有 `b.Go` 启动的协程 panic 会触发所有插件的 `OnPanic`；普通事件回调里的 panic 由 `safeExecute` 捕获后只记录错误日志，不会触发 `OnPanic`
 - 系统插件默认实现：私聊通知管理员，1 分钟内防抖
 
 ## 执行顺序常量
