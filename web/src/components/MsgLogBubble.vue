@@ -18,9 +18,8 @@
       :style="isSelf ? undefined : avatarStyle"
       :title="displayName"
     >
-      <Icon v-if="isSelf" name="Send" :size="18" />
       <img
-        v-else-if="avatarSrc && !avatarBroken"
+        v-if="avatarSrc && !avatarBroken"
         class="msg-avatar-img"
         :src="avatarSrc"
         alt=""
@@ -34,8 +33,7 @@
 
     <div class="msg-main">
       <div v-if="showName" class="msg-head">
-        <span class="msg-name" :class="{ 'is-self-name': isSelf }" :title="userId ? '用户 ID：' + userId : displayName">{{ displayName }}</span>
-        <span v-if="isSelf" class="msg-tag">发送</span>
+        <span class="msg-name" :class="{ 'is-self-name': isSelf }" :title="nameTitle">{{ displayName }}</span>
         <span v-if="log.failed" class="msg-failed">发送失败</span>
         <span v-if="context && context !== displayName" class="msg-context">{{ context }}</span>
         <span class="msg-stamp">{{ clock }}</span>
@@ -141,11 +139,11 @@ import { computed, provide, ref, watch } from 'vue'
 import { Icon } from 'animal-island-vue'
 import { auth, canDirectMsgMedia, msgMediaLinkUrl, msgMediaUrl } from '../api.js'
 import { avatarGradient, avatarInitials, qqUserAvatarUrl } from '../utils/avatar.js'
+import { senderName, senderTitle } from '../utils/messageLog.js'
 import {
   friendlyPreview,
   parseInline,
   pruneMediaTokens,
-  shortId,
   splitMessageBlocks,
 } from '../utils/messageText.js'
 import MsgLogBlocks from './MsgLogBlocks.vue'
@@ -167,8 +165,7 @@ function onContextMenu(e) {
 }
 
 const isNotice = computed(() => props.log.type === 'notice')
-// Bot 自己发出的消息（后端 Entry.Self）：右对齐展示，头像用发送图标，
-// 避免与会话里收到的消息混在一起看不出是谁说的。
+// CocoBot 自己发出的消息（后端 Entry.Self）：沿用右对齐，复用现有品牌头像。
 const isSelf = computed(() => !!props.log.self)
 const clock = computed(() => fmtClock(props.log.time))
 const preview = computed(() => friendlyPreview(props.log.text, 140))
@@ -190,19 +187,16 @@ const imageLayout = computed(() => {
   return 'is-grid'
 })
 
-const displayName = computed(() => {
-  if (isSelf.value) return 'Bot'
-  if (props.log.nickname) return props.log.nickname
-  if (props.log.user_id) return '用户 ' + shortId(props.log.user_id)
-  return '未知用户'
-})
-const userId = computed(() => (props.log.user_id ? shortId(props.log.user_id) : ''))
+const displayName = computed(() => senderName(props.log))
+const nameTitle = computed(() => senderTitle(props.log))
 const initials = computed(() => avatarInitials(displayName.value))
 const avatarStyle = computed(() => avatarGradient(props.log.user_id || displayName.value))
-// QQ 消息显示真实头像；其他平台 / 取不到 QQ 号时回退渐变首字，加载失败同样回退
-const avatarSrc = computed(() => qqUserAvatarUrl(props.log.user_id, 100))
+// 自身消息直接使用本地 CocoBot 头像，不能拿接收方的 user_id 当机器人头像。
+// QQ 用户显示真实头像；其他平台或加载失败时回退首字。
+const botAvatar = import.meta.env.BASE_URL + 'logo.webp'
+const avatarSrc = computed(() => isSelf.value ? botAvatar : qqUserAvatarUrl(props.log.user_id, 100))
 const avatarBroken = ref(false)
-watch(() => props.log.user_id, () => {
+watch(avatarSrc, () => {
   avatarBroken.value = false
 })
 
@@ -425,9 +419,9 @@ function fileBadge(name) {
   max-width: 88%;
   padding: 6px 14px;
   border-radius: 999px;
-  background: rgb(255 244 207 / 0.72);
-  border: 1.5px dashed #ecd48c;
-  color: var(--warn-ink);
+  background: var(--surface-2);
+  border: 1.5px dashed var(--line-strong);
+  color: var(--ink-soft);
   font-size: 11.5px;
   line-height: 1.5;
 }
@@ -435,17 +429,17 @@ function fileBadge(name) {
   width: 6px;
   height: 6px;
   border-radius: 999px;
-  background: var(--warn);
-  box-shadow: 0 0 0 3px rgb(245 195 28 / 0.18);
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
   flex-shrink: 0;
 }
 .notice-title {
   font-weight: 800;
   letter-spacing: 0.02em;
-  color: #9a6a06;
+  color: var(--ink-soft);
 }
 .notice-context {
-  color: #b79a63;
+  color: var(--ink-muted);
   font-weight: 700;
   max-width: 150px;
   overflow: hidden;
@@ -453,12 +447,12 @@ function fileBadge(name) {
   white-space: nowrap;
 }
 .notice-body {
-  color: #a88340;
+  color: var(--ink-muted);
   min-width: 0;
   overflow-wrap: anywhere;
 }
 .notice-time {
-  color: #b79a63;
+  color: var(--ink-disabled);
   font-family: var(--font-mono);
   font-size: 10.5px;
 }
@@ -473,7 +467,7 @@ function fileBadge(name) {
 .msg-row.is-continued {
   margin-top: 4px;
 }
-/* Bot 自己发出的消息：整体右对齐，气泡换到右侧朝向 */
+/* CocoBot 自己发出的消息：整体右对齐，气泡换到右侧朝向 */
 .msg-row.is-self {
   flex-direction: row-reverse;
 }
@@ -499,8 +493,8 @@ function fileBadge(name) {
   font-size: 14px;
   font-weight: 800;
   letter-spacing: 0.02em;
-  text-shadow: 0 1px 2px rgb(94 68 35 / 0.28);
-  box-shadow: 0 2px 0 0 rgb(94 68 35 / 0.16), inset 0 1px 0 rgb(255 255 255 / 0.35);
+  text-shadow: 0 1px 2px rgb(15 23 42 / 0.28);
+  box-shadow: 0 2px 0 0 rgb(15 23 42 / 0.16), inset 0 1px 0 rgb(255 255 255 / 0.35);
   user-select: none;
   overflow: hidden;
 }
@@ -512,12 +506,12 @@ function fileBadge(name) {
   object-fit: cover;
   border-radius: inherit;
 }
-/* Bot 头像：主题色描边的发送图标，与真人头像区分 */
+/* CocoBot 头像：保留主题色描边，与普通用户头像区分 */
 .msg-avatar.is-self-avatar {
   background: var(--accent-tint);
   color: var(--accent-strong);
   border: 2px solid var(--accent);
-  box-shadow: 0 2px 0 0 rgb(17 168 155 / 0.22), inset 0 1px 0 rgb(255 255 255 / 0.7);
+  box-shadow: 0 2px 0 0 var(--accent-soft), inset 0 1px 0 rgb(255 255 255 / 0.7);
   text-shadow: none;
 }
 .msg-avatar-gap {
@@ -533,6 +527,7 @@ function fileBadge(name) {
 }
 .msg-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 6px;
   padding: 0 4px 3px;
@@ -541,7 +536,7 @@ function fileBadge(name) {
 .msg-name {
   font-size: 11.5px;
   font-weight: 800;
-  color: #7c6547;
+  color: var(--ink-soft);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -550,25 +545,13 @@ function fileBadge(name) {
 .msg-name.is-self-name {
   color: var(--accent-strong);
 }
-/* 「发送」小标签：Bot 发出的消息与收到的消息一眼区分 */
-.msg-tag {
-  flex-shrink: 0;
-  padding: 0 6px;
-  border-radius: 999px;
-  border: 1px solid var(--accent);
-  background: var(--accent-tint);
-  color: var(--accent-strong);
-  font-size: 9.5px;
-  line-height: 15px;
-  font-weight: 700;
-}
 .msg-failed {
   flex-shrink: 0;
   padding: 0 6px;
   border-radius: 999px;
-  border: 1px dashed #e5b23a;
-  background: var(--warn-soft);
-  color: var(--warn-ink);
+  border: 1px dashed var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger-ink);
   font-size: 9.5px;
   line-height: 15px;
   font-weight: 700;
@@ -588,6 +571,7 @@ function fileBadge(name) {
   font-weight: 600;
 }
 .msg-stamp {
+  flex-shrink: 0;
   font-size: 10px;
   color: var(--ink-disabled);
   font-family: var(--font-mono);
@@ -603,18 +587,18 @@ function fileBadge(name) {
   border-radius: 6px 17px 17px 17px;
   background: var(--surface);
   border: 2px solid var(--line);
-  box-shadow: 0 2px 0 0 rgb(224 210 182 / 0.55);
+  box-shadow: 0 2px 0 0 rgb(203 213 225 / 0.55);
   color: var(--ink-body);
   font-size: 13.5px;
   line-height: 1.68;
   overflow-wrap: anywhere;
 }
-/* Bot 发出的消息：右侧气泡 + 主题色浅底 */
+/* CocoBot 发出的消息：右侧气泡 + 深海蓝浅底与描边 */
 .msg-row.is-self .msg-bubble {
   border-radius: 17px 6px 17px 17px;
   background: var(--accent-tint);
-  border-color: #b9ece5;
-  box-shadow: 0 2px 0 0 rgb(17 168 155 / 0.16);
+  border-color: var(--accent-soft);
+  box-shadow: 0 2px 0 0 var(--accent-soft);
 }
 .msg-bubble.has-media {
   padding-bottom: 11px;
@@ -690,7 +674,7 @@ function fileBadge(name) {
   flex-direction: column;
   gap: 6px;
   margin-top: 7px;
-  min-width: 240px;
+  min-width: min(240px, 100%);
 }
 .file-card {
   display: flex;
@@ -713,7 +697,7 @@ function fileBadge(name) {
   font-weight: 800;
   letter-spacing: 0.02em;
   color: #fff;
-  background: #9a8b72;
+  background: var(--ink-muted);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.3);
 }
 .file-card.tone-pdf .file-badge { background: linear-gradient(150deg, #f2908b, #dd615b); }
@@ -831,7 +815,7 @@ function fileBadge(name) {
   max-height: 240px;
   border-radius: 12px;
   border: 2px solid var(--line);
-  background: #2b2118;
+  background: var(--ink);
 }
 
 @media (max-width: 640px) {

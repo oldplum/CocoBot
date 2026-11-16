@@ -143,7 +143,7 @@
           <div v-if="!sessions.length" class="conv-empty">
             <span class="conv-empty-ico"><Icon name="Inbox" :size="22" /></span>
             还没有任何会话
-            <small>Bot 收发消息或通知后会在这里出现</small>
+            <small>{{ BOT_NAME }} 收发消息或通知后会在这里出现</small>
           </div>
           <div v-else-if="!visibleSessions.length" class="conv-empty">
             <span class="conv-empty-ico"><Icon name="Search" :size="20" /></span>
@@ -343,6 +343,7 @@ import { Icon, Input, Notification, Switch } from 'animal-island-vue'
 import { api, msgMediaUrl } from '../api.js'
 import { confirmAction } from '../ui/confirm'
 import { avatarGradient, avatarInitials, sessionAvatarKey, sessionAvatarUrl } from '../utils/avatar.js'
+import { BOT_NAME } from '../utils/messageLog.js'
 import { friendlyPreview, shortId } from '../utils/messageText.js'
 import MsgLogBubble from '../components/MsgLogBubble.vue'
 
@@ -489,13 +490,13 @@ const allPreview = computed(() => {
     if (s.last_type === 'notice') {
       return head + ([s.title, friendlyPreview(s.last_text, 50)].filter(Boolean).join(' · ') || '通知')
     }
-    const who = s.last_self ? 'Bot：' : (s.kind === 'group' && s.name ? s.name + '：' : '')
+    const who = s.last_self ? BOT_NAME + '：' : (s.kind === 'group' && s.name ? s.name + '：' : '')
     return head + who + friendlyPreview(s.last_text, 60)
   }
   const log = allLogs.value[0]
   if (!log) return '暂无消息'
   if (log.type === 'notice') return [log.title, friendlyPreview(log.text, 50)].filter(Boolean).join(' · ')
-  const who = log.self ? 'Bot' : (log.nickname || shortId(log.user_id))
+  const who = log.self ? BOT_NAME : (log.nickname || shortId(log.user_id))
   return (who ? who + '：' : '') + friendlyPreview(log.text, 60)
 })
 const lastUpdatedText = computed(() => (lastUpdated.value ? clock(lastUpdated.value) : '—'))
@@ -555,9 +556,9 @@ function sessionPreview(s) {
   if (s.last_type === 'notice') {
     return [s.title, preview].filter(Boolean).join(' · ') || '通知'
   }
-  // Bot 发的最新一条：加「Bot：」前缀，与群成员发言区分
+  // CocoBot 发的最新一条：加品牌名称前缀，与群成员发言区分
   if (s.last_self) {
-    return 'Bot：' + (preview || '（无内容）')
+    return BOT_NAME + '：' + (preview || '（无内容）')
   }
   // 群聊预览带上最后一位发言人，未解析出群名时也能快速认出上下文
   if (s.kind === 'group' && s.name && preview && !preview.startsWith(s.name + '：')) {
@@ -1021,7 +1022,7 @@ const contextMenuLabel = computed(() => {
   const log = menu.log
   if (!log) return ''
   if (log.type === 'notice') return log.title || '通知'
-  if (log.self) return log.failed ? 'Bot（发送失败）' : 'Bot'
+  if (log.self) return log.failed ? BOT_NAME + '（发送失败）' : BOT_NAME
   return log.nickname || shortId(log.user_id) || '消息'
 })
 
@@ -1107,7 +1108,7 @@ async function deleteLog(log) {
   if (!log || !log.id) return
   const who = log.type === 'notice'
     ? (log.title || '通知')
-    : (log.self ? 'Bot' : (log.nickname || shortId(log.user_id) || '未知用户'))
+    : (log.self ? BOT_NAME : (log.nickname || shortId(log.user_id) || '未知用户'))
   const preview = friendlyPreview(log.text, 60)
   const ok = await confirmAction({
     title: '删除消息记录',
@@ -1267,8 +1268,8 @@ onUnmounted(() => {
   flex-direction: column;
   border-right: 2px solid var(--line);
   background:
-    radial-gradient(circle, rgb(196 184 158 / 0.2) 1px, transparent 1px) 0 0 / 18px 18px,
-    linear-gradient(180deg, #fbf6e8 0%, #f7f0dd 100%);
+    radial-gradient(circle, rgb(148 163 184 / 0.2) 1px, transparent 1px) 0 0 / 18px 18px,
+    linear-gradient(180deg, var(--surface-2) 0%, var(--surface-3) 100%);
 }
 .conv-head {
   padding: 14px 13px 10px;
@@ -1307,6 +1308,7 @@ onUnmounted(() => {
 .conv-scroll {
   flex: 1;
   overflow-y: auto;
+  scrollbar-color: var(--line-strong) transparent;
   padding: 8px 8px 14px;
 }
 .conv-item {
@@ -1323,12 +1325,12 @@ onUnmounted(() => {
   transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .conv-item:hover {
-  background: rgb(255 253 247 / 0.68);
+  background: rgb(255 255 255 / 0.68);
 }
 .conv-item.active {
   background: var(--surface);
   border-color: var(--line-strong);
-  box-shadow: 0 2px 0 0 rgb(224 210 182 / 0.7);
+  box-shadow: 0 2px 0 0 rgb(203 213 225 / 0.7);
 }
 .conv-item.active .conv-name {
   color: var(--accent-strong);
@@ -1345,8 +1347,8 @@ onUnmounted(() => {
   color: #fff;
   font-size: 14px;
   font-weight: 800;
-  text-shadow: 0 1px 2px rgb(94 68 35 / 0.26);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.35), 0 2px 0 0 rgb(94 68 35 / 0.12);
+  text-shadow: 0 1px 2px rgb(15 23 42 / 0.26);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.35), 0 2px 0 0 rgb(15 23 42 / 0.12);
   user-select: none;
 }
 .conv-avatar.all-avatar,
@@ -1485,7 +1487,7 @@ onUnmounted(() => {
   gap: 11px;
   padding: 11px 16px;
   border-bottom: 2px solid var(--line);
-  background: rgb(255 253 247 / 0.9);
+  background: rgb(255 255 255 / 0.9);
   backdrop-filter: blur(4px);
 }
 .back-btn {
@@ -1512,8 +1514,8 @@ onUnmounted(() => {
   color: #fff;
   font-size: 14px;
   font-weight: 800;
-  text-shadow: 0 1px 2px rgb(94 68 35 / 0.26);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.35), 0 2px 0 0 rgb(94 68 35 / 0.12);
+  text-shadow: 0 1px 2px rgb(15 23 42 / 0.26);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.35), 0 2px 0 0 rgb(15 23 42 / 0.12);
   user-select: none;
 }
 .head-main {
@@ -1606,11 +1608,12 @@ onUnmounted(() => {
 .chat-scroll {
   height: 100%;
   overflow-y: auto;
+  scrollbar-color: var(--line-strong) transparent;
   padding: 4px 20px 18px;
   background-image:
-    radial-gradient(40rem 24rem at 100% 0%, rgb(25 200 185 / 0.05), transparent 60%),
-    radial-gradient(32rem 20rem at 0% 100%, rgb(247 205 103 / 0.08), transparent 60%),
-    radial-gradient(circle, rgb(196 184 158 / 0.17) 1px, transparent 1px);
+    radial-gradient(40rem 24rem at 100% 0%, rgb(34 66 148 / 0.05), transparent 60%),
+    radial-gradient(32rem 20rem at 0% 100%, rgb(148 163 184 / 0.08), transparent 60%),
+    radial-gradient(circle, rgb(148 163 184 / 0.17) 1px, transparent 1px);
   background-size: auto, auto, 20px 20px;
 }
 .chat-inner {
@@ -1633,7 +1636,7 @@ onUnmounted(() => {
 .day-divider span {
   padding: 3px 12px;
   border-radius: 999px;
-  background: rgb(255 253 247 / 0.85);
+  background: rgb(255 255 255 / 0.85);
   border: 1.5px solid var(--line);
   color: var(--ink-muted);
   font-size: 10px;
@@ -1682,15 +1685,15 @@ onUnmounted(() => {
   margin-bottom: 4px;
   border-radius: 22px;
   background: var(--accent-tint);
-  border: 2px solid #cdeee8;
+  border: 2px solid var(--accent-soft);
   color: var(--accent-strong);
-  box-shadow: 0 3px 0 0 #d8ece6;
+  box-shadow: 0 3px 0 0 var(--accent-soft);
 }
 .empty-spinner {
   width: 22px;
   height: 22px;
   border-radius: 999px;
-  border: 3px solid rgb(196 184 158 / 0.35);
+  border: 3px solid var(--line);
   border-top-color: var(--accent);
   animation: spin 0.8s linear infinite;
 }
@@ -1737,7 +1740,7 @@ onUnmounted(() => {
   height: 6px;
   border-radius: 999px;
   background: var(--ok);
-  box-shadow: 0 0 0 3px rgb(111 186 44 / 0.16);
+  box-shadow: 0 0 0 3px rgb(22 163 74 / 0.16);
   flex-shrink: 0;
   animation: breathe 2.4s ease-out infinite;
 }
@@ -1783,7 +1786,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   padding: 40px 64px;
-  background: rgb(43 33 24 / 0.82);
+  background: rgb(15 23 42 / 0.82);
   backdrop-filter: blur(6px);
 }
 .lightbox-figure {
@@ -1801,7 +1804,7 @@ onUnmounted(() => {
   border-radius: 14px;
   object-fit: contain;
   box-shadow: 0 22px 60px -20px rgb(0 0 0 / 0.6);
-  background: #1d1712;
+  background: var(--ink);
 }
 .lightbox-bar {
   display: flex;
@@ -1809,9 +1812,9 @@ onUnmounted(() => {
   gap: 14px;
   padding: 6px 16px;
   border-radius: 999px;
-  background: rgb(255 253 247 / 0.12);
-  border: 1px solid rgb(255 253 247 / 0.18);
-  color: #f4ead7;
+  background: rgb(255 255 255 / 0.12);
+  border: 1px solid rgb(255 255 255 / 0.18);
+  color: var(--surface-3);
   font-size: 11.5px;
   backdrop-filter: blur(8px);
 }
@@ -1824,10 +1827,10 @@ onUnmounted(() => {
 }
 .lightbox-index {
   font-family: var(--font-mono);
-  color: rgb(244 234 215 / 0.65);
+  color: rgb(241 245 249 / 0.65);
 }
 .lightbox-bar a {
-  color: #ffd977;
+  color: #bfdbfe;
   text-decoration: none;
   font-weight: 700;
 }
@@ -1838,7 +1841,7 @@ onUnmounted(() => {
 .lightbox-bar button {
   border: none;
   background: none;
-  color: #f4ead7;
+  color: var(--surface-3);
   font-size: 11.5px;
   font-weight: 700;
   cursor: pointer;
@@ -1854,9 +1857,9 @@ onUnmounted(() => {
   width: 44px;
   height: 44px;
   border-radius: 999px;
-  border: 1px solid rgb(255 253 247 / 0.22);
-  background: rgb(255 253 247 / 0.12);
-  color: #f4ead7;
+  border: 1px solid rgb(255 255 255 / 0.22);
+  background: rgb(255 255 255 / 0.12);
+  color: var(--surface-3);
   font-size: 28px;
   line-height: 1;
   cursor: pointer;
@@ -1865,7 +1868,7 @@ onUnmounted(() => {
   justify-content: center;
 }
 .lightbox-nav:hover {
-  background: rgb(255 253 247 / 0.22);
+  background: rgb(255 255 255 / 0.22);
 }
 .lightbox-nav.prev {
   left: 18px;
@@ -1883,7 +1886,7 @@ onUnmounted(() => {
   border-radius: 14px;
   border: 2px solid var(--line-strong);
   background: var(--surface);
-  box-shadow: 0 16px 36px -16px rgb(70 48 20 / 0.45), 0 3px 0 0 rgb(224 210 182 / 0.7);
+  box-shadow: 0 16px 36px -16px rgb(15 23 42 / 0.45), 0 3px 0 0 rgb(203 213 225 / 0.7);
   animation: ctx-in 0.12s ease-out;
 }
 @keyframes ctx-in {
@@ -1922,10 +1925,10 @@ onUnmounted(() => {
   background: var(--surface-2);
 }
 .ctx-item.danger {
-  color: var(--danger);
+  color: var(--danger-ink);
 }
 .ctx-item.danger:hover {
-  background: rgb(215 87 87 / 0.1);
+  background: var(--danger-soft);
 }
 
 /* ================= 响应式 ================= */

@@ -8,7 +8,7 @@
     :show-footer="false"
     @close="settleConfirm(false)"
   >
-    <p class="text-sm leading-relaxed whitespace-pre-wrap text-[#725d42]">{{ confirmState.message }}</p>
+    <p class="text-sm leading-relaxed whitespace-pre-wrap text-[var(--ink-soft)]">{{ confirmState.message }}</p>
     <div class="flex justify-end gap-2 pt-5">
       <Button type="text" @click="settleConfirm(false)">{{ confirmState.cancelText }}</Button>
       <Button type="primary" :danger="confirmState.danger" @click="settleConfirm(true)">

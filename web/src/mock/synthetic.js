@@ -2,6 +2,8 @@
 // 结构与真实 API 响应逐字段对齐（参考 bot/adminpanel 各 DTO 与真实抓取的 seed/*.json），
 // 数值为围绕固定种子随机生成的合理值。仅被 handlers.js 引用，正常构建不进产物。
 
+import { BOT_NAME } from '../utils/messageLog.js'
+
 //  基础工具 
 
 // 固定种子伪随机：同一会话内每次生成都稳定，轮询/翻页时数据不跳变
@@ -55,7 +57,7 @@ const AI_REPLIES = [
 // @、表情与分享卡片，用来展示聊天式面板的各类消息形态。图片使用自绘 SVG
 // data URI，离线也能显示，不依赖外部图床。
 
-function svgPhoto(from, to, label, sub = 'AniaBot demo') {
+function svgPhoto(from, to, label, sub = BOT_NAME + ' demo') {
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="720" height="480" viewBox="0 0 720 480">'
     + '<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">'
     + `<stop offset="0" stop-color="${from}"/><stop offset="1" stop-color="${to}"/>`
@@ -88,11 +90,11 @@ export function buildMsgLogs(now) {
     add(minutesAgo, { type: 'group', group_id: groupId, user_id: userId, nickname, text, ...(media ? { media } : {}) })
   const friend = (minutesAgo, userId, nickname, text, media) =>
     add(minutesAgo, { type: 'friend', user_id: userId, nickname, text, ...(media ? { media } : {}) })
-  // Bot 自己发出的消息（与真实日志一致：Self 标记、昵称固定为 Bot）
+  // 自身消息的 self 标记与真实日志一致，演示昵称沿用 CocoBot 品牌。
   const selfGroup = (minutesAgo, groupId, text, media) =>
-    add(minutesAgo, { type: 'group', group_id: groupId, nickname: 'Bot', text, self: true, ...(media ? { media } : {}) })
+    add(minutesAgo, { type: 'group', group_id: groupId, nickname: BOT_NAME, text, self: true, ...(media ? { media } : {}) })
   const selfFriend = (minutesAgo, userId, text, media) =>
-    add(minutesAgo, { type: 'friend', user_id: userId, nickname: 'Bot', text, self: true, ...(media ? { media } : {}) })
+    add(minutesAgo, { type: 'friend', user_id: userId, nickname: BOT_NAME, text, self: true, ...(media ? { media } : {}) })
 
   const G1 = 'qq:123456' // AniaBot 交流群
   const G2 = 'qq:7891011' // 摸鱼打字机
@@ -129,7 +131,7 @@ export function buildMsgLogs(now) {
   group(58, G1, 'qq:10001', '星野',
     '<reply>\n  [nickname:阿白 id:qq:10002]: 收到，正好下周要重装\n</reply>\n同求 +1')
   selfGroup(44, G1,
-    '\n<合并转发消息>\n  [nickname:AniaBot id:qq:99999]: 周末活动安排：周六晚 8 点组队开黑，语音频道见\n  [nickname:星野 id:qq:10001]: 收到，带我一个\n  [nickname:咕咕鸟 id:qq:10006]: +1\n</合并转发消息>\n')
+    `\n<合并转发消息>\n  [nickname:${BOT_NAME} id:qq:99999]: 周末活动安排：周六晚 8 点组队开黑，语音频道见\n  [nickname:星野 id:qq:10001]: 收到，带我一个\n  [nickname:咕咕鸟 id:qq:10006]: +1\n</合并转发消息>\n`)
   // 嵌套合并转发（转发节点自己又是一条转发）：文本格式与 FriendlyText 一致，
   // 内层块整体多缩进两个空格；引用它的消息同样把整段内容缩进一层。转发内部的
   // 图片以 in_forward 媒体记录，面板会按 [图片] 占位顺序填回对应节点。
@@ -166,7 +168,7 @@ export function buildMsgLogs(now) {
     [{ kind: 'file', name: '周末活动安排.xlsx', size: 20312, file_id: 'fid-demo-2' }])
   // 发送失败示例：平台未确认成功，面板在气泡上标注「发送失败」
   add(0.5, {
-    type: 'group', group_id: G1, nickname: 'Bot',
+    type: 'group', group_id: G1, nickname: BOT_NAME,
     text: '（演示）这条消息因为风控被平台拒绝，发送失败', self: true, failed: true,
   })
 
