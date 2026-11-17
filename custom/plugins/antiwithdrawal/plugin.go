@@ -27,7 +27,7 @@ func NewPlugin() *AntiWithdrawalPlugin {
 	p.Name = "防撤回"
 	p.HelpWords = "群聊回顾最近的n条消息，发送 /explore [n] 获取，n<=100，默认50"
 	p.Author = "jeanhua"
-	p.Version = "1.0.1"
+	p.Version = "1.0.2"
 	p.AdminOnly = false
 	p.ShowFor = plugininfo.ShowForGroup
 	p.Order = plugin.LevelNormal
@@ -167,7 +167,7 @@ func isTimeout(timestamp uint) bool {
 
 func (p *AntiWithdrawalPlugin) OnFriendMsg(ctx context.Context, b bot.Bot, cmd command.Command, msg message.Message) (bool, error) {
 	qb, _ := b.(bot.QQ)
-	if cmd.Name == "explore" && msg.Sender.UserId == p.SystemConfig.AdminId {
+	if cmd.Name == "explore" && p.SystemConfig.IsAdmin(msg.Sender.UserId) {
 		if len(cmd.Args) == 0 {
 			builder := msgchain.Builder().Friend()
 			builder.Text("请输入完整参数 /explore [Group ID] [count]")
