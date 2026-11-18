@@ -79,7 +79,8 @@
     color: var(--ink-body);
     font-weight: 500;
     letter-spacing: 0.01em;
-    min-height: 100vh;
+    /* dvh：移动端浏览器工具栏收放时按实际可视高度计算，避免 100vh 把底部内容压到工具栏下 */
+    min-height: 100dvh;
     background-color: var(--page-bg);
     background-image:
       radial-gradient(60rem 40rem at 2% -12%, rgb(34 66 148 / 0.08), transparent 58%),
@@ -260,6 +261,14 @@
 .fade-enter-from {
   opacity: 0;
   transform: translateY(8px);
+}
+
+/* 底部安全区：移动端手势条 / 浏览器工具栏会盖住视口最下方，
+   主内容区额外留出安全距离，滚到底时最后一行不会被压住 */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .safe-bottom {
+    padding-bottom: calc(2.5rem + env(safe-area-inset-bottom));
+  }
 }
 
 /* ============================================================================
@@ -952,6 +961,24 @@
   text-align: center;
 }
 
+/* 表格：列宽合计超过容器宽度时（窄屏 / 列多的页）横向滚动。
+   主题库 Table 只有传 scroll 属性才给容器加 overflow，未传时宽表格会被外层
+   Card 的 overflow:hidden 直接裁掉右侧列（看起来「显示不全」）。这里统一兜底，
+   宽度足够时不会出现滚动条，行为与原来一致。 */
+.app-shell .animal-table-wrapper {
+  overflow-x: auto;
+  min-width: 0;
+}
+/* 窄屏压缩单元格内边距，同样的屏幕上能看到更多列、行高也不会被挤成一字一行 */
+@media (max-width: 767px) {
+  .app-shell .animal-table__th {
+    padding: 14px 10px;
+  }
+  .app-shell .animal-table__cell {
+    padding: 12px 10px;
+  }
+}
+
 /* 分段筛选按钮组：每组一个奶油小框，多组并排时能看出分组边界 */
 .app-shell .filter-group {
   display: inline-flex;
@@ -961,6 +988,13 @@
   border-radius: 999px;
   background: var(--surface);
   border: 2px solid var(--line);
+  /* 窄屏放不下时自身横向滚动，避免把整页撑出横向滚动条 */
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.app-shell .filter-group::-webkit-scrollbar {
+  display: none;
 }
 
 /* ---- 焦点环：统一鹅黄（主题库的 focus 色） ---- */
